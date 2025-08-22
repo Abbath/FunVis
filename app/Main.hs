@@ -22,7 +22,7 @@ prettyPrint (Param p) = p
 prettyPrint (Num x) = showT x
 prettyPrint (Add e1 e2) = "(" <> prettyPrint e1 <> " + " <> prettyPrint e2 <> ")"
 prettyPrint (Mul e1 e2) = "(" <> prettyPrint e1 <> " * " <> prettyPrint e2 <> ")"
-prettyPrint (Pow e1) = prettyPrint e1 <> "^2"
+prettyPrint (Pow e1) = "(" <> prettyPrint e1 <> "^2)"
 prettyPrint (Fun f e1) = f <> "(" <> prettyPrint e1 <> ")"
 
 generateFunction :: (StatefulGen g m) => Int -> [Text] -> g -> m Expr
@@ -44,8 +44,8 @@ generateFunction depth ps gen = do
     4 -> Mul <$> gf <*> gf
     5 -> Pow <$> gf
     6 -> do
-      idx <- uniformRM (0 :: Int, 2) gen
-      Fun (["sin", "cos", "abs"] !! idx) <$> gf
+      idx <- uniformRM (0 :: Int, 3) gen
+      Fun (["sin", "cos", "abs", "sqrt"] !! idx) <$> gf
     _ -> error "Unreachable!"
  where
   gf = generateFunction (depth - 1) ps gen
@@ -60,6 +60,7 @@ computeFunction m e = case e of
   Fun "sin" e1 -> sin $ cf e1
   Fun "cos" e1 -> cos $ cf e1
   Fun "abs" e1 -> abs $ cf e1
+  Fun "sqrt" e1 -> sqrt $ cf e1
   _ -> error "Unreachable!"
  where
   cf = computeFunction m
@@ -87,20 +88,18 @@ main = do
               let (x, y) = n `divMod` size
                   xd = fromIntegral x / fromIntegral size * 2 * pi
                   yd = fromIntegral y / fromIntegral size * 2 * pi
-                  v_r = computeFunction [("x", xd), ("y", yd)] fun_r
-                  v_g = computeFunction [("x", xd), ("y", yd)] fun_g
-                  v_b = computeFunction [("x", xd), ("y", yd)] fun_b
+                  params = [("x", xd), ("y", yd)]
+                  v_r = computeFunction params fun_r
+                  v_g = computeFunction params fun_g
+                  v_b = computeFunction params fun_b
                in (Rgb v_r v_g v_b, n)
           )
           ([0 .. size * size - 1] :: [Int])
-  let maxValue_r = r . fst $ maximumBy (compare `on` r . fst) values
-  let minValue_r = r . fst $ minimumBy (compare `on` r . fst) values
+  let (maxValue_r, minValue_r) = computeBounds r values
   let valueSpan_r = maxValue_r - minValue_r
-  let maxValue_g = g . fst $ maximumBy (compare `on` g . fst) values
-  let minValue_g = g . fst $ minimumBy (compare `on` g . fst) values
+  let (maxValue_g, minValue_g) = computeBounds g values
   let valueSpan_g = maxValue_g - minValue_g
-  let maxValue_b = b . fst $ maximumBy (compare `on` b . fst) values
-  let minValue_b = b . fst $ minimumBy (compare `on` b . fst) values
+  let (maxValue_b, minValue_b) = computeBounds b values
   let valueSpan_b = maxValue_b - minValue_b
   withFile "image.ppm" WriteMode $ \h -> do
     hPutStrLn h "P3"
@@ -108,11 +107,15 @@ main = do
     hPutStrLn h "255"
     mapM_
       ( \(Rgb v_r v_g v_b, n) ->
-          let c_r = (`mod` 256) . truncate $ (v_r - minValue_r) / valueSpan_r * 255
-              c_g = (`mod` 256) . truncate $ (v_g - minValue_g) / valueSpan_g * 255
-              c_b = (`mod` 256) . truncate $ (v_b - minValue_b) / valueSpan_b * 255
+          let c_r = compute v_r minValue_r valueSpan_r
+              c_g = compute v_g minValue_g valueSpan_g
+              c_b = compute v_b minValue_b valueSpan_b
            in do
                 hPutStrLn h $ show @Int c_r <> " " <> show @Int c_g <> " " <> show @Int c_b
                 when (n `mod` 3 == 2) $ hPutStrLn h ""
       )
       values
+ where
+  compute v minValue valueSpan = (`mod` 256) . truncate $ (v - minValue) / valueSpan * 255
+  computeBound f g values = f . fst $ g (compare `on` f . fst) values
+  computeBounds f values = (computeBound f maximumBy values, computeBound f minimumBy values)
