@@ -18,22 +18,18 @@ generateFunction ps gen = do
   choice <- uniformRM (1 :: Int, 4) gen
   case choice of
     1 -> do
-      arg <- uniformRM (0 :: Int, 1) gen
-      pure . Num . fromIntegral $ arg
+      arg <- uniformRM (0 :: Double, 10) gen
+      pure $ Num arg
     2 -> do
       idx <- uniformRM (0 :: Int, length ps - 1) gen
       pure . Param . (!! idx) $ ps
     3 -> do
-      r1 <- gf gen
-      r2 <- gf gen
-      pure $ Add r1 r2
+      Add <$> gf <*> gf
     4 -> do
-      r1 <- gf gen
-      r2 <- gf gen
-      pure $ Mul r1 r2
+      Mul <$> gf <*> gf
     _ -> error "Unreachable!"
  where
-  gf = generateFunction ps
+  gf = generateFunction ps gen
 
 computeFunction :: Map Text Double -> Expr -> Double
 computeFunction m e = case e of
