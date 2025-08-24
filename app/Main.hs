@@ -3,12 +3,12 @@
 
 module Main where
 
-import Control.Monad (when)
 import Data.Foldable (maximumBy, minimumBy)
 import Data.Function (on)
 import Data.Map (Map, (!))
 import Data.Text (Text, pack)
 import Data.Text.IO qualified as T
+import Options.Applicative
 import System.IO (IOMode (WriteMode), hPutStrLn, withFile)
 import System.Random.Stateful
 
@@ -25,17 +25,17 @@ prettyPrint (Mul e1 e2) = "(" <> prettyPrint e1 <> " * " <> prettyPrint e2 <> ")
 prettyPrint (Pow e1) = "(" <> prettyPrint e1 <> "^2)"
 prettyPrint (Fun f e1) = f <> "(" <> prettyPrint e1 <> ")"
 
-generateFunction :: (StatefulGen g m) => Int -> [Text] -> g -> m Expr
-generateFunction 0 ps gen = do
+generateFunction :: (StatefulGen g m) => Int -> Double -> [Text] -> g -> m Expr
+generateFunction 0 mc ps gen = do
   choice <- uniformRM (0 :: Int, 1) gen
   if choice == 0
-    then uniformRM (0 :: Double, 10) gen >>= pure <$> Num
+    then uniformRM (0 :: Double, mc) gen >>= pure <$> Num
     else uniformRM (0, length ps - 1) gen >>= pure <$> Param . (ps !!)
-generateFunction depth ps gen = do
+generateFunction depth mc ps gen = do
   choice <- uniformRM (1 :: Int, 6) gen
   case choice of
     1 -> do
-      arg <- uniformRM (0 :: Double, 10) gen
+      arg <- uniformRM (0 :: Double, mc) gen
       pure $ Num arg
     2 -> do
       idx <- uniformRM (0, length ps - 1) gen
@@ -44,11 +44,11 @@ generateFunction depth ps gen = do
     4 -> Mul <$> gf <*> gf
     5 -> Pow <$> gf
     6 -> do
-      idx <- uniformRM (0 :: Int, 3) gen
-      Fun (["sin", "cos", "abs", "sqrt"] !! idx) <$> gf
+      idx <- uniformRM (0 :: Int, 4) gen
+      Fun (["sin", "cos", "abs", "sqrt", "log"] !! idx) <$> gf
     _ -> error "Unreachable!"
  where
-  gf = generateFunction (depth - 1) ps gen
+  gf = generateFunction (depth - 1) mc ps gen
 
 computeFunction :: Map Text Double -> Expr -> Double
 computeFunction m e = case e of
@@ -61,40 +61,57 @@ computeFunction m e = case e of
   Fun "cos" e1 -> cos $ cf e1
   Fun "abs" e1 -> abs $ cf e1
   Fun "sqrt" e1 -> sqrt $ cf e1
+  Fun "log" e1 -> log $ cf e1
   _ -> error "Unreachable!"
  where
   cf = computeFunction m
 
 data Rgb = Rgb {r :: Double, g :: Double, b :: Double}
 
-maxFunDepth :: Int
-maxFunDepth = 15
+data Options = Options
+  { maxDepth :: Int
+  , fieldSize :: Double
+  , imageWidth :: Int
+  , imageHeight :: Int
+  , maxConstant :: Double
+  }
+
+options :: Parser Options
+options =
+  Options
+    <$> option auto (long "max-depth" <> short 'd' <> help "Maximum function depth" <> showDefault <> value 25 <> metavar "DEPTH")
+    <*> option auto (long "field-size" <> short 's' <> help "Field size" <> showDefault <> value (2 * pi) <> metavar "FSIZE")
+    <*> option auto (long "width" <> short 'w' <> help "Width in pixels" <> showDefault <> value 1024 <> metavar "WIDTH")
+    <*> option auto (long "height" <> short 'h' <> help "Height in pixels" <> showDefault <> value 1024 <> metavar "HEIGHT")
+    <*> option auto (long "max-constant" <> short 'c' <> help "Maximum constant range" <> showDefault <> value 10.0 <> metavar "MAX_CONSTANT")
 
 main :: IO ()
 main = do
+  args <- execParser opts
   gen_r <- newStdGen >>= newIOGenM
   gen_g <- newStdGen >>= newIOGenM
   gen_b <- newStdGen >>= newIOGenM
-  fun_r <- generateFunction maxFunDepth ["x", "y"] gen_r
+  fun_r <- generateFunction (maxDepth args) (maxConstant args) ["x", "y"] gen_r
   T.putStrLn $ prettyPrint fun_r
-  fun_g <- generateFunction maxFunDepth ["x", "y"] gen_g
+  fun_g <- generateFunction (maxDepth args) (maxConstant args) ["x", "y"] gen_g
   T.putStrLn $ prettyPrint fun_g
-  fun_b <- generateFunction maxFunDepth ["x", "y"] gen_b
+  fun_b <- generateFunction (maxDepth args) (maxConstant args) ["x", "y"] gen_b
   T.putStrLn $ prettyPrint fun_b
-  let size = 1000 :: Int
+  let width = imageWidth args
+  let height = imageHeight args
   let values =
         map
           ( \n ->
-              let (x, y) = n `divMod` size
-                  xd = fromIntegral x / fromIntegral size * 2 * pi
-                  yd = fromIntegral y / fromIntegral size * 2 * pi
-                  params = [("x", xd), ("y", yd)]
-                  v_r = computeFunction params fun_r
-                  v_g = computeFunction params fun_g
-                  v_b = computeFunction params fun_b
-               in (Rgb v_r v_g v_b, n)
+              let (x, y) = n `divMod` width
+                  d c s = fromIntegral c / fromIntegral s * fieldSize args - fieldSize args / 2
+                  (xd, yd) = (d x width, d y height)
+                  cfp = computeFunction [("x", xd), ("y", yd)]
+                  v_r = cfp fun_r
+                  v_g = cfp fun_g
+                  v_b = cfp fun_b
+               in Rgb v_r v_g v_b
           )
-          ([0 .. size * size - 1] :: [Int])
+          ([0 .. width * height - 1] :: [Int])
   let (maxValue_r, minValue_r) = computeBounds r values
   let valueSpan_r = maxValue_r - minValue_r
   let (maxValue_g, minValue_g) = computeBounds g values
@@ -103,19 +120,19 @@ main = do
   let valueSpan_b = maxValue_b - minValue_b
   withFile "image.ppm" WriteMode $ \h -> do
     hPutStrLn h "P3"
-    hPutStrLn h $ show size <> " " <> show size
+    hPutStrLn h $ show width <> " " <> show height
     hPutStrLn h "255"
     mapM_
-      ( \(Rgb v_r v_g v_b, n) ->
+      ( \(Rgb v_r v_g v_b) ->
           let c_r = compute v_r minValue_r valueSpan_r
               c_g = compute v_g minValue_g valueSpan_g
               c_b = compute v_b minValue_b valueSpan_b
            in do
                 hPutStrLn h $ show @Int c_r <> " " <> show @Int c_g <> " " <> show @Int c_b
-                when (n `mod` 3 == 2) $ hPutStrLn h ""
       )
       values
  where
   compute v minValue valueSpan = (`mod` 256) . truncate $ (v - minValue) / valueSpan * 255
-  computeBound f g values = f . fst $ g (compare `on` f . fst) values
+  computeBound f g values = f $ g (compare `on` f) values
   computeBounds f values = (computeBound f maximumBy values, computeBound f minimumBy values)
+  opts = info (options <**> helper) (fullDesc <> progDesc "Function Visualisation" <> header "Visualise a random function")

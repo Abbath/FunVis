@@ -71,6 +71,7 @@ executable FunVis
                     , random
                     , text
                     , containers
+                    , optparse-applicative
 
     -- Directories containing source files.
     hs-source-dirs:   app
