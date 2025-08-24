@@ -60,7 +60,6 @@ computeFunction m e = case e of
   Mul e1 e2 -> cf e1 * cf e2
   Pow e1 -> cf e1 ** 2
   Fun "sin" e1 -> sin $ cf e1
-  Fun "cos" e1 -> cos $ cf e1
   Fun "abs" e1 -> abs $ cf e1
   Fun "sqrt" e1 -> sqrt $ cf e1
   Fun "log" e1 -> log $ cf e1
@@ -113,11 +112,12 @@ main = do
   gen_b <- newStdGen >>= newIOGenM
   let ws = read @[Double] . T.unpack . ("[" <>) . (<> "]") . T.intercalate ", " . T.words $ weights args
   let normWeights = normalizeWieghts (Weights (head ws) (ws !! 1) (ws !! 2) (ws !! 3) (ws !! 4) (ws !! 5))
-  fun_r <- generateFunction (maxDepth args) (maxConstant args) ["x", "y"] normWeights gen_r
+  let gf = generateFunction (maxDepth args) (maxConstant args) ["x", "y"] normWeights
+  fun_r <- gf gen_r
   T.putStrLn $ prettyPrint fun_r
-  fun_g <- generateFunction (maxDepth args) (maxConstant args) ["x", "y"] normWeights gen_g
+  fun_g <- gf gen_g
   T.putStrLn $ prettyPrint fun_g
-  fun_b <- generateFunction (maxDepth args) (maxConstant args) ["x", "y"] normWeights gen_b
+  fun_b <- gf gen_b
   T.putStrLn $ prettyPrint fun_b
   let width = imageWidth args
   let height = imageHeight args
@@ -128,10 +128,7 @@ main = do
                   d c s = fromIntegral c / fromIntegral s * fieldSize args - fieldSize args / 2
                   (xd, yd) = (d x width, d y height)
                   cfp = computeFunction [("x", xd), ("y", yd)]
-                  v_r = cfp fun_r
-                  v_g = cfp fun_g
-                  v_b = cfp fun_b
-               in Rgb v_r v_g v_b
+               in Rgb (cfp fun_r) (cfp fun_g) (cfp fun_b)
           )
           ([0 .. width * height - 1] :: [Int])
   let (maxValue_r, minValue_r) = computeBounds r values
@@ -151,7 +148,7 @@ main = do
               c_g = compute v_g minValue_g valueSpan_g
               c_b = compute v_b minValue_b valueSpan_b
            in case output args of
-                BinaryOutput -> BS.hPut h (BS.pack [fromIntegral c_r, fromIntegral c_g, fromIntegral c_b])
+                BinaryOutput -> BS.hPut h [fromIntegral c_r, fromIntegral c_g, fromIntegral c_b]
                 TextOutput -> hPutStrLn h $ show @Int c_r <> " " <> show @Int c_g <> " " <> show @Int c_b
       )
       values
@@ -162,12 +159,12 @@ main = do
   computeBounds f values = (computeBound f maximumBy values, computeBound f minimumBy values)
   normalizeWieghts ws =
     let
-      s1 = w1 ws
-      s2 = w1 ws + w2 ws
-      s3 = w1 ws + w2 ws + w3 ws
-      s4 = w1 ws + w2 ws + w3 ws + w4 ws
-      s5 = w1 ws + w2 ws + w3 ws + w4 ws + w5 ws
       s6 = w1 ws + w2 ws + w3 ws + w4 ws + w5 ws + w6 ws
+      s5 = s6 - w6 ws
+      s4 = s5 - w5 ws
+      s3 = s4 - w4 ws
+      s2 = s3 - w3 ws
+      s1 = s2 - w2 ws
      in
       Weights (s1 / s6) (s2 / s6) (s3 / s6) (s4 / s6) (s5 / s6) (s6 / s6)
   opts = info (options <**> helper) (fullDesc <> progDesc "Function Visualisation" <> header "Visualise a random function")
