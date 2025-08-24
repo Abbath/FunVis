@@ -88,7 +88,7 @@ options =
     <*> option auto (long "width" <> short 'w' <> help "Width in pixels" <> showDefault <> value 1024 <> metavar "WIDTH")
     <*> option auto (long "height" <> short 'h' <> help "Height in pixels" <> showDefault <> value 1024 <> metavar "HEIGHT")
     <*> option auto (long "max-constant" <> short 'c' <> help "Maximum constant range" <> showDefault <> value 10.0 <> metavar "MAX_CONSTANT")
-    <*> flag TextOutput BinaryOutput (long "output-format" <> short 'f')
+    <*> flag TextOutput BinaryOutput (long "binary-output" <> short 'b')
 
 main :: IO ()
 main = do
