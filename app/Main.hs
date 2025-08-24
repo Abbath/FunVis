@@ -3,6 +3,7 @@
 
 module Main where
 
+import Control.Monad (when)
 import Data.ByteString qualified as BS
 import Data.Foldable (maximumBy, minimumBy)
 import Data.Function (on)
@@ -10,7 +11,7 @@ import Data.Map (Map, (!))
 import Data.Text (Text, pack)
 import Data.Text.IO qualified as T
 import Options.Applicative
-import System.IO (IOMode (WriteMode), hPutStrLn, withFile)
+import System.IO (IOMode (WriteMode), hPutStrLn, hSetBinaryMode, withFile)
 import System.Random.Stateful
 
 data Expr = Param Text | Num Double | Add Expr Expr | Mul Expr Expr | Pow Expr | Fun Text Expr deriving (Show)
@@ -76,7 +77,7 @@ data Options = Options
   , imageWidth :: Int
   , imageHeight :: Int
   , maxConstant :: Double
-  , output :: Maybe Output
+  , output :: Output
   }
 
 options :: Parser Options
@@ -87,7 +88,7 @@ options =
     <*> option auto (long "width" <> short 'w' <> help "Width in pixels" <> showDefault <> value 1024 <> metavar "WIDTH")
     <*> option auto (long "height" <> short 'h' <> help "Height in pixels" <> showDefault <> value 1024 <> metavar "HEIGHT")
     <*> option auto (long "max-constant" <> short 'c' <> help "Maximum constant range" <> showDefault <> value 10.0 <> metavar "MAX_CONSTANT")
-    <*> optional (flag' TextOutput (long "text" <> short 't') <|> flag' BinaryOutput (long "binary" <> short 'b'))
+    <*> flag TextOutput BinaryOutput (long "output-format" <> short 'f')
 
 main :: IO ()
 main = do
@@ -123,17 +124,18 @@ main = do
   let (maxValue_b, minValue_b) = computeBounds b values
   let valueSpan_b = maxValue_b - minValue_b
   withFile "image.ppm" WriteMode $ \h -> do
-    hPutStrLn h (if output args /= Just BinaryOutput then "P3" else "P6")
+    hPutStrLn h (if output args /= BinaryOutput then "P3" else "P6")
     hPutStrLn h $ show width <> " " <> show height
     hPutStrLn h "255 "
+    when (output args == BinaryOutput) $ hSetBinaryMode h True
     mapM_
       ( \(Rgb v_r v_g v_b) ->
           let c_r = compute v_r minValue_r valueSpan_r
               c_g = compute v_g minValue_g valueSpan_g
               c_b = compute v_b minValue_b valueSpan_b
            in case output args of
-                Just BinaryOutput -> BS.hPut h (BS.pack [fromIntegral c_r, fromIntegral c_g, fromIntegral c_b])
-                _ -> hPutStrLn h $ show @Int c_r <> " " <> show @Int c_g <> " " <> show @Int c_b
+                BinaryOutput -> BS.hPut h (BS.pack [fromIntegral c_r, fromIntegral c_g, fromIntegral c_b])
+                TextOutput -> hPutStrLn h $ show @Int c_r <> " " <> show @Int c_g <> " " <> show @Int c_b
       )
       values
  where
