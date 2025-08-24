@@ -3,6 +3,7 @@
 
 module Main where
 
+import Data.ByteString qualified as BS
 import Data.Foldable (maximumBy, minimumBy)
 import Data.Function (on)
 import Data.Map (Map, (!))
@@ -26,29 +27,28 @@ prettyPrint (Pow e1) = "(" <> prettyPrint e1 <> "^2)"
 prettyPrint (Fun f e1) = f <> "(" <> prettyPrint e1 <> ")"
 
 generateFunction :: (StatefulGen g m) => Int -> Double -> [Text] -> g -> m Expr
-generateFunction 0 mc ps gen = do
-  choice <- uniformRM (0 :: Int, 1) gen
-  if choice == 0
-    then uniformRM (0 :: Double, mc) gen >>= pure <$> Num
-    else uniformRM (0, length ps - 1) gen >>= pure <$> Param . (ps !!)
-generateFunction depth mc ps gen = do
-  choice <- uniformRM (1 :: Int, 6) gen
-  case choice of
-    1 -> do
-      arg <- uniformRM (0 :: Double, mc) gen
-      pure $ Num arg
-    2 -> do
-      idx <- uniformRM (0, length ps - 1) gen
-      pure . Param . (!! idx) $ ps
-    3 -> Add <$> gf <*> gf
-    4 -> Mul <$> gf <*> gf
-    5 -> Pow <$> gf
-    6 -> do
-      idx <- uniformRM (0 :: Int, 4) gen
-      Fun (["sin", "cos", "abs", "sqrt", "log"] !! idx) <$> gf
-    _ -> error "Unreachable!"
+generateFunction depth mc ps gen
+  | depth == 0 = do
+      choice <- uniformRM (0 :: Int, 1) gen
+      if choice == 0
+        then Num <$> randomNumber
+        else Param <$> randomChoice ps
+  | otherwise = do
+      choice <- uniformRM (1 :: Int, 6) gen
+      case choice of
+        1 -> Num <$> randomNumber
+        2 -> Param <$> randomChoice ps
+        3 -> Add <$> gf <*> gf
+        4 -> Mul <$> gf <*> gf
+        5 -> Pow <$> gf
+        6 -> Fun <$> randomChoice ["sin", "abs", "sqrt", "log"] <*> gf
+        _ -> error "Unreachable!"
  where
   gf = generateFunction (depth - 1) mc ps gen
+  randomNumber = uniformRM (0 :: Double, mc) gen
+  randomChoice v = do
+    idx <- uniformRM (0 :: Int, length v - 1) gen
+    pure $ v !! idx
 
 computeFunction :: Map Text Double -> Expr -> Double
 computeFunction m e = case e of
@@ -68,12 +68,15 @@ computeFunction m e = case e of
 
 data Rgb = Rgb {r :: Double, g :: Double, b :: Double}
 
+data Output = TextOutput | BinaryOutput deriving (Eq)
+
 data Options = Options
   { maxDepth :: Int
   , fieldSize :: Double
   , imageWidth :: Int
   , imageHeight :: Int
   , maxConstant :: Double
+  , output :: Maybe Output
   }
 
 options :: Parser Options
@@ -84,6 +87,7 @@ options =
     <*> option auto (long "width" <> short 'w' <> help "Width in pixels" <> showDefault <> value 1024 <> metavar "WIDTH")
     <*> option auto (long "height" <> short 'h' <> help "Height in pixels" <> showDefault <> value 1024 <> metavar "HEIGHT")
     <*> option auto (long "max-constant" <> short 'c' <> help "Maximum constant range" <> showDefault <> value 10.0 <> metavar "MAX_CONSTANT")
+    <*> optional (flag' TextOutput (long "text" <> short 't') <|> flag' BinaryOutput (long "binary" <> short 'b'))
 
 main :: IO ()
 main = do
@@ -119,19 +123,21 @@ main = do
   let (maxValue_b, minValue_b) = computeBounds b values
   let valueSpan_b = maxValue_b - minValue_b
   withFile "image.ppm" WriteMode $ \h -> do
-    hPutStrLn h "P3"
+    hPutStrLn h (if output args /= Just BinaryOutput then "P3" else "P6")
     hPutStrLn h $ show width <> " " <> show height
-    hPutStrLn h "255"
+    hPutStrLn h "255 "
     mapM_
       ( \(Rgb v_r v_g v_b) ->
           let c_r = compute v_r minValue_r valueSpan_r
               c_g = compute v_g minValue_g valueSpan_g
               c_b = compute v_b minValue_b valueSpan_b
-           in do
-                hPutStrLn h $ show @Int c_r <> " " <> show @Int c_g <> " " <> show @Int c_b
+           in case output args of
+                Just BinaryOutput -> BS.hPut h (BS.pack [fromIntegral c_r, fromIntegral c_g, fromIntegral c_b])
+                _ -> hPutStrLn h $ show @Int c_r <> " " <> show @Int c_g <> " " <> show @Int c_b
       )
       values
  where
+  compute :: Double -> Double -> Double -> Int
   compute v minValue valueSpan = (`mod` 256) . truncate $ (v - minValue) / valueSpan * 255
   computeBound f g values = f $ g (compare `on` f) values
   computeBounds f values = (computeBound f maximumBy values, computeBound f minimumBy values)
