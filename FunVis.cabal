@@ -73,6 +73,7 @@ executable FunVis
                     , containers
                     , optparse-applicative
                     , bytestring
+                    , filepath
 
     -- Directories containing source files.
     hs-source-dirs:   app

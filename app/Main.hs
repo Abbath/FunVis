@@ -2,7 +2,7 @@
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Main where
+module Main (main) where
 
 import Control.Monad (when)
 import Data.ByteString qualified as BS
@@ -13,6 +13,7 @@ import Data.Text (Text, pack)
 import Data.Text qualified as T
 import Data.Text.IO qualified as T
 import Options.Applicative
+import System.FilePath ((-<.>))
 import System.IO (IOMode (WriteMode), hPutStrLn, hSetBinaryMode, withFile)
 import System.Random.Stateful
 
@@ -78,7 +79,8 @@ data Options = Options
   , imageHeight :: Int
   , maxConstant :: Double
   , weights :: Text
-  , output :: Output
+  , outputType :: Output
+  , output :: FilePath
   }
 
 options :: Parser Options
@@ -91,9 +93,7 @@ options =
     <*> option auto (long "max-constant" <> short 'c' <> help "Maximum constant range" <> showDefault <> value 10.0 <> metavar "MAX_CONSTANT")
     <*> strOption (long "weights" <> short 'g' <> help "Weights" <> showDefault <> value "1 1 1 1 1 1" <> metavar "WEIGHTS")
     <*> flag TextOutput BinaryOutput (long "binary-output" <> short 'b')
-
-defaultWeights :: Weights
-defaultWeights = Weights 1 1 1 1 1 1
+    <*> strOption (long "output" <> short 'o' <> help "Output file .ppm" <> showDefault <> value "image.ppm" <> metavar "OUTPUT")
 
 data Weights = Weights
   { w1 :: Double
@@ -137,17 +137,17 @@ main = do
   let valueSpan_g = maxValue_g - minValue_g
   let (maxValue_b, minValue_b) = computeBounds b values
   let valueSpan_b = maxValue_b - minValue_b
-  withFile "image.ppm" WriteMode $ \h -> do
-    hPutStrLn h (if output args /= BinaryOutput then "P3" else "P6")
+  withFile (output args -<.> "ppm") WriteMode $ \h -> do
+    hPutStrLn h (if outputType args /= BinaryOutput then "P3" else "P6")
     hPutStrLn h $ show width <> " " <> show height
     hPutStrLn h "255 "
-    when (output args == BinaryOutput) $ hSetBinaryMode h True
+    when (outputType args == BinaryOutput) $ hSetBinaryMode h True
     mapM_
       ( \(Rgb v_r v_g v_b) ->
           let c_r = compute v_r minValue_r valueSpan_r
               c_g = compute v_g minValue_g valueSpan_g
               c_b = compute v_b minValue_b valueSpan_b
-           in case output args of
+           in case outputType args of
                 BinaryOutput -> BS.hPut h [fromIntegral c_r, fromIntegral c_g, fromIntegral c_b]
                 TextOutput -> hPutStrLn h $ show @Int c_r <> " " <> show @Int c_g <> " " <> show @Int c_b
       )
