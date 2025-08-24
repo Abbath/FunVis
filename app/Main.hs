@@ -12,12 +12,14 @@ import Data.Map (Map, (!))
 import Data.Text (Text, pack)
 import Data.Text qualified as T
 import Data.Text.IO qualified as T
+import ExprParser (Expr (..), parseExpr)
 import Options.Applicative
 import System.FilePath ((-<.>))
 import System.IO (IOMode (WriteMode), hPutStrLn, hSetBinaryMode, withFile)
 import System.Random.Stateful
+import Text.Megaparsec.Error
 
-data Expr = Param Text | Num Double | Add Expr Expr | Mul Expr Expr | Pow Expr | Fun Text Expr deriving (Show)
+-- data Expr = Param Text | Num Double | Add Expr Expr | Mul Expr Expr | Pow Expr | Fun Text Expr deriving (Show)
 
 showT :: (Show a) => a -> Text
 showT = pack . show
@@ -48,7 +50,7 @@ generateFunction depth mc ps ws gen
         | otherwise -> Fun <$> randomChoice ["sin", "abs", "sqrt", "log"] <*> gf
  where
   gf = generateFunction (depth - 1) mc ps ws gen
-  randomNumber = uniformRM (0 :: Double, mc) gen
+  randomNumber = uniformRM (-mc, mc) gen
   randomChoice v = do
     idx <- uniformRM (0 :: Int, length v - 1) gen
     pure $ v !! idx
@@ -81,6 +83,9 @@ data Options = Options
   , weights :: Text
   , outputType :: Output
   , output :: FilePath
+  , funR :: Text
+  , funG :: Text
+  , funB :: Text
   }
 
 options :: Parser Options
@@ -91,9 +96,12 @@ options =
     <*> option auto (long "width" <> short 'w' <> help "Width in pixels" <> showDefault <> value 1024 <> metavar "WIDTH")
     <*> option auto (long "height" <> short 'h' <> help "Height in pixels" <> showDefault <> value 1024 <> metavar "HEIGHT")
     <*> option auto (long "max-constant" <> short 'c' <> help "Maximum constant range" <> showDefault <> value 10.0 <> metavar "MAX_CONSTANT")
-    <*> strOption (long "weights" <> short 'g' <> help "Weights" <> showDefault <> value "1 1 1 1 1 1" <> metavar "WEIGHTS")
-    <*> flag TextOutput BinaryOutput (long "binary-output" <> short 'b')
+    <*> strOption (long "weights" <> short 't' <> help "Weights" <> showDefault <> value "1 1 1 1 1 1" <> metavar "WEIGHTS")
+    <*> flag TextOutput BinaryOutput (long "binary-output" <> short 'n')
     <*> strOption (long "output" <> short 'o' <> help "Output file .ppm" <> showDefault <> value "image.ppm" <> metavar "OUTPUT")
+    <*> strOption (long "red" <> short 'r' <> value "" <> metavar "RED_FUNCTION")
+    <*> strOption (long "green" <> short 'g' <> value "" <> metavar "GREEN_FUNCTION")
+    <*> strOption (long "blue" <> short 'b' <> value "" <> metavar "BLUE_FUNCTION")
 
 data Weights = Weights
   { w1 :: Double
@@ -104,6 +112,11 @@ data Weights = Weights
   , w6 :: Double
   }
 
+parseFunction :: Text -> Expr
+parseFunction f = case parseExpr (T.unpack f) of
+  Left err -> error (errorBundlePretty err)
+  Right ast -> ast
+
 main :: IO ()
 main = do
   args <- execParser opts
@@ -113,11 +126,20 @@ main = do
   let ws = read @[Double] . T.unpack . ("[" <>) . (<> "]") . T.intercalate ", " . T.words $ weights args
   let normWeights = normalizeWieghts (Weights (head ws) (ws !! 1) (ws !! 2) (ws !! 3) (ws !! 4) (ws !! 5))
   let gf = generateFunction (maxDepth args) (maxConstant args) ["x", "y"] normWeights
-  fun_r <- gf gen_r
+  fun_r <-
+    if funR args == ""
+      then gf gen_r
+      else pure . parseFunction $ funR args
   T.putStrLn $ prettyPrint fun_r
-  fun_g <- gf gen_g
+  fun_g <-
+    if funG args == ""
+      then gf gen_g
+      else pure . parseFunction $ funG args
   T.putStrLn $ prettyPrint fun_g
-  fun_b <- gf gen_b
+  fun_b <-
+    if funB args == ""
+      then gf gen_b
+      else pure . parseFunction $ funB args
   T.putStrLn $ prettyPrint fun_b
   let width = imageWidth args
   let height = imageHeight args
