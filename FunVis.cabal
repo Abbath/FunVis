@@ -76,6 +76,8 @@ executable FunVis
                     , filepath
                     , megaparsec
                     , parser-combinators
+                    , JuicyPixels
+                    , vector
 
     -- Directories containing source files.
     hs-source-dirs:   app

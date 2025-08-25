@@ -1,9 +1,11 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Main (main) where
 
+import Codec.Picture qualified as J
 import Control.Monad (when)
 import Data.ByteString qualified as BS
 import Data.Foldable (maximumBy, minimumBy)
@@ -12,6 +14,8 @@ import Data.Map (Map, (!))
 import Data.Text (Text, pack)
 import Data.Text qualified as T
 import Data.Text.IO qualified as T
+import Data.Vector.Storable qualified as V
+import Data.Word
 import ExprParser (Expr (..), parseExpr)
 import Options.Applicative
 import System.FilePath ((-<.>))
@@ -72,7 +76,14 @@ computeFunction m e = case e of
 
 data Rgb = Rgb {r :: Double, g :: Double, b :: Double}
 
-data Output = TextOutput | BinaryOutput deriving (Eq)
+data Output = PngOutput | TextOutput | BinaryOutput deriving (Eq, Show)
+
+parseOutput :: ReadM Output
+parseOutput = eitherReader $ \case
+  "png" -> pure PngOutput
+  "text" -> pure TextOutput
+  "bin" -> pure BinaryOutput
+  _ -> error "Wrong output format"
 
 data Options = Options
   { maxDepth :: Int
@@ -97,7 +108,7 @@ options =
     <*> option auto (long "height" <> short 'h' <> help "Height in pixels" <> showDefault <> value 1024 <> metavar "HEIGHT")
     <*> option auto (long "max-constant" <> short 'c' <> help "Maximum constant range" <> showDefault <> value 10.0 <> metavar "MAX_CONSTANT")
     <*> strOption (long "weights" <> short 't' <> help "Weights" <> showDefault <> value "1 1 1 1 1 1" <> metavar "WEIGHTS")
-    <*> flag TextOutput BinaryOutput (long "binary-output" <> short 'n')
+    <*> option parseOutput (long "output-format" <> short 'f' <> showDefault <> value PngOutput <> metavar "FORMAT")
     <*> strOption (long "output" <> short 'o' <> help "Output file .ppm" <> showDefault <> value "image.ppm" <> metavar "OUTPUT")
     <*> strOption (long "red" <> short 'r' <> value "" <> metavar "RED_FUNCTION")
     <*> strOption (long "green" <> short 'g' <> value "" <> metavar "GREEN_FUNCTION")
@@ -159,24 +170,27 @@ main = do
   let valueSpan_g = maxValue_g - minValue_g
   let (maxValue_b, minValue_b) = computeBounds b values
   let valueSpan_b = maxValue_b - minValue_b
-  withFile (output args -<.> "ppm") WriteMode $ \h -> do
-    hPutStrLn h (if outputType args /= BinaryOutput then "P3" else "P6")
-    hPutStrLn h $ show width <> " " <> show height
-    hPutStrLn h "255 "
-    when (outputType args == BinaryOutput) $ hSetBinaryMode h True
-    mapM_
-      ( \(Rgb v_r v_g v_b) ->
-          let c_r = compute v_r minValue_r valueSpan_r
-              c_g = compute v_g minValue_g valueSpan_g
-              c_b = compute v_b minValue_b valueSpan_b
-           in case outputType args of
-                BinaryOutput -> BS.hPut h [fromIntegral c_r, fromIntegral c_g, fromIntegral c_b]
-                TextOutput -> hPutStrLn h $ show @Int c_r <> " " <> show @Int c_g <> " " <> show @Int c_b
-      )
-      values
+  let values3 = V.concat $ map (\(Rgb r g b) -> V.fromList [compute r minValue_r valueSpan_r, compute g minValue_g valueSpan_g, compute b minValue_b valueSpan_b]) values
+  case outputType args of
+    PngOutput -> J.writePng @J.PixelRGB8 (output args -<.> "png") (J.Image width height values3)
+    _ -> withFile (output args -<.> "ppm") WriteMode $ \h -> do
+      hPutStrLn h (if outputType args /= BinaryOutput then "P3" else "P6")
+      hPutStrLn h $ show width <> " " <> show height
+      hPutStrLn h "255 "
+      when (outputType args == BinaryOutput) $ hSetBinaryMode h True
+      mapM_
+        ( \(Rgb v_r v_g v_b) ->
+            let c_r = compute v_r minValue_r valueSpan_r
+                c_g = compute v_g minValue_g valueSpan_g
+                c_b = compute v_b minValue_b valueSpan_b
+             in case outputType args of
+                  BinaryOutput -> BS.hPut h [fromIntegral c_r, fromIntegral c_g, fromIntegral c_b]
+                  TextOutput -> hPutStrLn h $ show @Word8 c_r <> " " <> show @Word8 c_g <> " " <> show @Word8 c_b
+        )
+        values
  where
-  compute :: Double -> Double -> Double -> Int
-  compute v minValue valueSpan = (`mod` 256) . truncate $ (v - minValue) / valueSpan * 255
+  compute :: Double -> Double -> Double -> Word8
+  compute v minValue valueSpan = fromInteger . (`mod` 256) . truncate $ (v - minValue) / valueSpan * 255
   computeBound f g values = f $ g (compare `on` f) values
   computeBounds f values = (computeBound f maximumBy values, computeBound f minimumBy values)
   normalizeWieghts ws =
