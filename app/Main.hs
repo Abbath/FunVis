@@ -32,6 +32,7 @@ prettyPrint :: Expr -> Text
 prettyPrint (Param p) = p
 prettyPrint (Num x) = showT x
 prettyPrint (Add e1 e2) = "(" <> prettyPrint e1 <> " + " <> prettyPrint e2 <> ")"
+prettyPrint (Mul (Num (-1)) e2) = "(-" <> prettyPrint e2 <> ")"
 prettyPrint (Mul e1 e2) = "(" <> prettyPrint e1 <> " * " <> prettyPrint e2 <> ")"
 prettyPrint (Pow e1) = "(" <> prettyPrint e1 <> "^2)"
 prettyPrint (Fun f e1) = f <> "(" <> prettyPrint e1 <> ")"
