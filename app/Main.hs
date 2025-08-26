@@ -6,7 +6,7 @@
 module Main (main) where
 
 import Codec.Picture qualified as J
-import Control.Monad (when)
+import Control.Monad (forM_, when)
 import Data.ByteString qualified as BS
 import Data.Foldable (maximumBy, minimumBy)
 import Data.Function (on)
@@ -18,10 +18,11 @@ import Data.Vector.Storable qualified as V
 import Data.Word
 import ExprParser (Expr (..), parseExpr)
 import Options.Applicative
-import System.FilePath ((-<.>))
+import System.FilePath (replaceBaseName, takeBaseName, (-<.>))
 import System.IO (IOMode (WriteMode), hPutStrLn, hSetBinaryMode, withFile)
 import System.Random.Stateful
 import Text.Megaparsec.Error
+import Text.Printf
 
 -- data Expr = Param Text | Num Double | Add Expr Expr | Mul Expr Expr | Pow Expr | Fun Text Expr deriving (Show)
 
@@ -98,6 +99,7 @@ data Options = Options
   , funR :: Text
   , funG :: Text
   , funB :: Text
+  , attempts :: Int
   }
 
 options :: Parser Options
@@ -109,11 +111,12 @@ options =
     <*> option auto (long "height" <> short 'h' <> help "Height in pixels" <> showDefault <> value 1024 <> metavar "HEIGHT")
     <*> option auto (long "max-constant" <> short 'c' <> help "Maximum constant range" <> showDefault <> value 10.0 <> metavar "MAX_CONSTANT")
     <*> strOption (long "weights" <> short 't' <> help "Weights" <> showDefault <> value "1 1 1 1 1 1" <> metavar "WEIGHTS")
-    <*> option parseOutput (long "output-format" <> short 'f' <> showDefault <> value PngOutput <> metavar "FORMAT")
-    <*> strOption (long "output" <> short 'o' <> help "Output file .ppm" <> showDefault <> value "image.ppm" <> metavar "OUTPUT")
-    <*> strOption (long "red" <> short 'r' <> value "" <> metavar "RED_FUNCTION")
-    <*> strOption (long "green" <> short 'g' <> value "" <> metavar "GREEN_FUNCTION")
-    <*> strOption (long "blue" <> short 'b' <> value "" <> metavar "BLUE_FUNCTION")
+    <*> option parseOutput (long "output-format" <> short 'f' <> help "Output format (png, text, bin)" <> value PngOutput <> metavar "FORMAT")
+    <*> strOption (long "output" <> short 'o' <> help "Output file name" <> showDefault <> value "image.png" <> metavar "OUTPUT")
+    <*> strOption (long "red" <> short 'r' <> help "Red channel function" <> value "" <> metavar "RED_FUNCTION")
+    <*> strOption (long "green" <> short 'g' <> help "Green channel function" <> value "" <> metavar "GREEN_FUNCTION")
+    <*> strOption (long "blue" <> short 'b' <> help "Blue channel function" <> value "" <> metavar "BLUE_FUNCTION")
+    <*> option auto (long "attempts" <> short 'a' <> help "Number of attempts" <> showDefault <> value 0 <> metavar "ATTEMPTS")
 
 data Weights = Weights
   { w1 :: Double
@@ -132,6 +135,14 @@ parseFunction f = case parseExpr (T.unpack f) of
 main :: IO ()
 main = do
   args <- execParser opts
+  case attempts args of
+    0 -> perform args (-1)
+    n -> forM_ ([1 .. n] :: [Int]) $ perform args
+ where
+  opts = info (options <**> helper) (fullDesc <> progDesc "Function Visualisation" <> header "Visualise a random function")
+
+perform :: Options -> Int -> IO ()
+perform args idx = do
   gen_r <- newStdGen >>= newIOGenM
   gen_g <- newStdGen >>= newIOGenM
   gen_b <- newStdGen >>= newIOGenM
@@ -172,9 +183,13 @@ main = do
   let (maxValue_b, minValue_b) = computeBounds b values
   let valueSpan_b = maxValue_b - minValue_b
   let values3 = V.concat $ map (\(Rgb r g b) -> V.fromList [compute r minValue_r valueSpan_r, compute g minValue_g valueSpan_g, compute b minValue_b valueSpan_b]) values
+  let filename =
+        if idx == -1
+          then output args
+          else replaceBaseName (output args) (takeBaseName (output args) <> "_" <> printf "%03d" idx)
   case outputType args of
-    PngOutput -> J.writePng @J.PixelRGB8 (output args -<.> "png") (J.Image width height values3)
-    _ -> withFile (output args -<.> "ppm") WriteMode $ \h -> do
+    PngOutput -> J.writePng @J.PixelRGB8 (filename -<.> "png") (J.Image width height values3)
+    _ -> withFile (filename -<.> "ppm") WriteMode $ \h -> do
       hPutStrLn h (if outputType args /= BinaryOutput then "P3" else "P6")
       hPutStrLn h $ show width <> " " <> show height
       hPutStrLn h "255 "
@@ -204,4 +219,3 @@ main = do
       s1 = s2 - w2 ws
      in
       Weights (s1 / s6) (s2 / s6) (s3 / s6) (s4 / s6) (s5 / s6) (s6 / s6)
-  opts = info (options <**> helper) (fullDesc <> progDesc "Function Visualisation" <> header "Visualise a random function")
