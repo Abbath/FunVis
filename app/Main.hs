@@ -35,7 +35,7 @@ prettyPrint (Num x) = showT x
 prettyPrint (Add e1 e2) = "(" <> prettyPrint e1 <> " + " <> prettyPrint e2 <> ")"
 prettyPrint (Mul (Num (-1)) e2) = "(-" <> prettyPrint e2 <> ")"
 prettyPrint (Mul e1 e2) = "(" <> prettyPrint e1 <> " * " <> prettyPrint e2 <> ")"
-prettyPrint (Pow e1) = "(" <> prettyPrint e1 <> "^2)"
+prettyPrint (Pow n e1) = "(" <> prettyPrint e1 <> "^" <> showT n <> ")"
 prettyPrint (Fun f e1) = f <> "(" <> prettyPrint e1 <> ")"
 
 generateFunction :: (StatefulGen g m) => Int -> Double -> [Text] -> Weights -> g -> m Expr
@@ -52,8 +52,8 @@ generateFunction depth mc ps ws gen
         | choice < w2 ws -> Param <$> randomChoice ps
         | choice < w3 ws -> Add <$> gf <*> gf
         | choice < w4 ws -> Mul <$> gf <*> gf
-        | choice < w5 ws -> Pow <$> gf
-        | otherwise -> Fun <$> randomChoice ["sin", "abs", "sqrt", "log"] <*> gf
+        | choice < w5 ws -> Pow <$> randomChoice [2.0, 3.0] <*> gf
+        | otherwise -> Fun <$> randomChoice ["sin", "abs", "sqrt", "log", "inv"] <*> gf
  where
   gf = generateFunction (depth - 1) mc ps ws gen
   randomNumber = uniformRM (-mc, mc) gen
@@ -67,11 +67,12 @@ computeFunction m e = case e of
   Param n -> m ! n
   Add e1 e2 -> cf e1 + cf e2
   Mul e1 e2 -> cf e1 * cf e2
-  Pow e1 -> cf e1 ** 2
+  Pow n e1 -> cf e1 ** n
   Fun "sin" e1 -> sin $ cf e1
   Fun "abs" e1 -> abs $ cf e1
   Fun "sqrt" e1 -> sqrt $ cf e1
   Fun "log" e1 -> log $ cf e1
+  Fun "inv" e1 -> let d = cf e1 in if d == 0 then d else 1 / cf e1
   _ -> error "Unreachable!"
  where
   cf = computeFunction m
@@ -182,6 +183,7 @@ perform args idx = do
   let valueSpan_g = maxValue_g - minValue_g
   let (maxValue_b, minValue_b) = computeBounds b values
   let valueSpan_b = maxValue_b - minValue_b
+  print (maxValue_r, minValue_r, valueSpan_r)
   let values3 = V.concat $ map (\(Rgb r g b) -> V.fromList [compute r minValue_r valueSpan_r, compute g minValue_g valueSpan_g, compute b minValue_b valueSpan_b]) values
   let filename =
         if idx == -1

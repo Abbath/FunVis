@@ -18,7 +18,7 @@ data Expr
   | Num Double
   | Add Expr Expr
   | Mul Expr Expr
-  | Pow Expr -- always square
+  | Pow Double Expr
   | Fun Text Expr
   deriving (Show)
 
@@ -72,8 +72,9 @@ table =
             _ <- symbol "^"
             n <- pNum
             case n of
-              Num 2.0 -> return Pow
-              _ -> fail "Only ^2 is supported"
+              Num 2.0 -> return $ Pow 2.0
+              Num 3.0 -> return $ Pow 3.0
+              _ -> fail "Only ^2  and ^3 are supported"
         )
     ]
   , [Prefix (Mul (Num (-1)) <$ symbol "-")]
