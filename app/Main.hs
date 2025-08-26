@@ -183,7 +183,6 @@ perform args idx = do
   let valueSpan_g = maxValue_g - minValue_g
   let (maxValue_b, minValue_b) = computeBounds b values
   let valueSpan_b = maxValue_b - minValue_b
-  print (maxValue_r, minValue_r, valueSpan_r)
   let values3 = V.concat $ map (\(Rgb r g b) -> V.fromList [compute r minValue_r valueSpan_r, compute g minValue_g valueSpan_g, compute b minValue_b valueSpan_b]) values
   let filename =
         if idx == -1
