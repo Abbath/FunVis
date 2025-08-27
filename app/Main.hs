@@ -6,7 +6,7 @@
 module Main (main) where
 
 import Codec.Picture qualified as J
-import Control.Monad (forM_, when)
+import Control.Monad (forM_, unless, when)
 import Data.ByteString qualified as BS
 import Data.Foldable (maximumBy, minimumBy)
 import Data.Function (on)
@@ -109,6 +109,7 @@ data Options = Options
   , funG :: Text
   , funB :: Text
   , attempts :: Int
+  , singleFunction :: Bool
   }
 
 options :: Parser Options
@@ -126,6 +127,7 @@ options =
     <*> strOption (long "green" <> short 'g' <> help "Green channel function" <> value "" <> metavar "GREEN_FUNCTION")
     <*> strOption (long "blue" <> short 'b' <> help "Blue channel function" <> value "" <> metavar "BLUE_FUNCTION")
     <*> option auto (long "attempts" <> short 'a' <> help "Number of attempts" <> showDefault <> value 0 <> metavar "ATTEMPTS")
+    <*> switch (long "single-function" <> short 'l' <> help "Single function")
 
 data Weights = Weights
   { w1 :: Double
@@ -168,12 +170,12 @@ perform args idx = do
     if funG args == ""
       then gf gen_g
       else pure . parseFunction $ funG args
-  T.putStrLn $ prettyPrint fun_g
+  unless (singleFunction args) $ T.putStrLn $ prettyPrint fun_g
   fun_b <-
     if funB args == ""
       then gf gen_b
       else pure . parseFunction $ funB args
-  T.putStrLn $ prettyPrint fun_b
+  unless (singleFunction args) $ T.putStrLn $ prettyPrint fun_b
   let width = imageWidth args
   let height = imageHeight args
   let values =
@@ -183,7 +185,7 @@ perform args idx = do
                   d c s = fromIntegral c / fromIntegral s * fieldSize args - fieldSize args / 2
                   (xd, yd) = (d x width, d y height)
                   cfp = computeFunction [("x", xd), ("y", yd)]
-               in Rgb (cfp fun_r) (cfp fun_g) (cfp fun_b)
+               in if singleFunction args then let val = cfp fun_r in Rgb val val val else Rgb (cfp fun_r) (cfp fun_g) (cfp fun_b)
           )
           ([0 .. width * height - 1] :: [Int])
   let (maxValue_r, minValue_r) = computeBounds r values
