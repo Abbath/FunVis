@@ -12,6 +12,8 @@ import Text.Megaparsec
 import Text.Megaparsec.Char
 import Text.Megaparsec.Char.Lexer qualified as L
 
+data Cond = Equal | Less deriving (Show, Eq)
+
 -- AST
 data Expr
   = Param Text
@@ -20,6 +22,7 @@ data Expr
   | Mul Expr Expr
   | Pow Double Expr
   | Fun Text Expr
+  | If Cond Expr Expr Expr Expr
   deriving (Show)
 
 -- Parser type
@@ -53,11 +56,29 @@ pFun = do
   arg <- parens pExpr
   return (Fun (pack fname) arg)
 
+pIfArgs :: Parser (Cond, Expr, Expr, Expr, Expr)
+pIfArgs = do
+  arg1 <- pExpr
+  c1 <- lexeme (symbol "==" <|> symbol "<")
+  arg2 <- pExpr
+  _ <- symbol ","
+  arg3 <- pExpr
+  _ <- symbol ","
+  arg4 <- pExpr
+  return (if c1 == "==" then Equal else Less, arg1, arg2, arg3, arg4)
+
+pIf :: Parser Expr
+pIf = do
+  _ <- symbol "if"
+  (cond, a, b, c, d) <- parens pIfArgs
+  return $ If cond a b c d
+
 -- Atomic expression
 pAtom :: Parser Expr
 pAtom =
   choice
-    [ try pFun -- must come before pVar
+    [ try pIf
+    , try pFun -- must come before pVar
     , try pNum
     , try pVar
     , parens pExpr

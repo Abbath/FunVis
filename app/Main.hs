@@ -16,7 +16,7 @@ import Data.Text qualified as T
 import Data.Text.IO qualified as T
 import Data.Vector.Storable qualified as V
 import Data.Word
-import ExprParser (Expr (..), parseExpr)
+import ExprParser (Cond (..), Expr (..), parseExpr)
 import Options.Applicative
 import System.FilePath (replaceBaseName, takeBaseName, (-<.>))
 import System.IO (IOMode (WriteMode), hPutStrLn, hSetBinaryMode, withFile)
@@ -37,6 +37,7 @@ prettyPrint (Mul (Num (-1)) e2) = "(-" <> prettyPrint e2 <> ")"
 prettyPrint (Mul e1 e2) = "(" <> prettyPrint e1 <> " * " <> prettyPrint e2 <> ")"
 prettyPrint (Pow n e1) = "(" <> prettyPrint e1 <> "^" <> showT n <> ")"
 prettyPrint (Fun f e1) = f <> "(" <> prettyPrint e1 <> ")"
+prettyPrint (If cond a b c d) = "if(" <> prettyPrint a <> (if cond == Equal then "==" else "<") <> prettyPrint b <> ", " <> prettyPrint c <> ", " <> prettyPrint d <> ")"
 
 generateFunction :: (StatefulGen g m) => Int -> Double -> [Text] -> Weights -> g -> m Expr
 generateFunction depth mc ps ws gen
@@ -53,6 +54,7 @@ generateFunction depth mc ps ws gen
         | choice < w3 ws -> Add <$> gf <*> gf
         | choice < w4 ws -> Mul <$> gf <*> gf
         | choice < w5 ws -> Pow <$> randomChoice [2.0, 3.0] <*> gf
+        | choice < w6 ws -> If <$> randomChoice [Equal, Less] <*> gf <*> gf <*> gf <*> gf
         | otherwise -> Fun <$> randomChoice ["sin", "abs", "sqrt", "log", "inv"] <*> gf
  where
   gf = generateFunction (depth - 1) mc ps ws gen
@@ -73,6 +75,12 @@ computeFunction m e = case e of
   Fun "sqrt" e1 -> sqrt $ cf e1
   Fun "log" e1 -> log $ cf e1
   Fun "inv" e1 -> let d = cf e1 in if d == 0 then d else 1 / cf e1
+  If cond a b c d ->
+    if case cond of
+      Equal -> cf a == cf b
+      Less -> cf a < cf b
+      then cf c
+      else cf d
   _ -> error "Unreachable!"
  where
   cf = computeFunction m
@@ -111,7 +119,7 @@ options =
     <*> option auto (long "width" <> short 'w' <> help "Width in pixels" <> showDefault <> value 1024 <> metavar "WIDTH")
     <*> option auto (long "height" <> short 'h' <> help "Height in pixels" <> showDefault <> value 1024 <> metavar "HEIGHT")
     <*> option auto (long "max-constant" <> short 'c' <> help "Maximum constant range" <> showDefault <> value 10.0 <> metavar "MAX_CONSTANT")
-    <*> strOption (long "weights" <> short 't' <> help "Weights" <> showDefault <> value "1 1 1 1 1 1" <> metavar "WEIGHTS")
+    <*> strOption (long "weights" <> short 't' <> help "Weights" <> showDefault <> value "1 1 1 1 1 1 1" <> metavar "WEIGHTS")
     <*> option parseOutput (long "output-format" <> short 'f' <> help "Output format (png, text, bin)" <> value PngOutput <> metavar "FORMAT")
     <*> strOption (long "output" <> short 'o' <> help "Output file name" <> showDefault <> value "image.png" <> metavar "OUTPUT")
     <*> strOption (long "red" <> short 'r' <> help "Red channel function" <> value "" <> metavar "RED_FUNCTION")
@@ -126,6 +134,7 @@ data Weights = Weights
   , w4 :: Double
   , w5 :: Double
   , w6 :: Double
+  , w7 :: Double
   }
 
 parseFunction :: Text -> Expr
@@ -148,7 +157,7 @@ perform args idx = do
   gen_g <- newStdGen >>= newIOGenM
   gen_b <- newStdGen >>= newIOGenM
   let ws = read @[Double] . T.unpack . ("[" <>) . (<> "]") . T.intercalate ", " . T.words $ weights args
-  let normWeights = normalizeWieghts (Weights (head ws) (ws !! 1) (ws !! 2) (ws !! 3) (ws !! 4) (ws !! 5))
+  let normWeights = normalizeWieghts (Weights (head ws) (ws !! 1) (ws !! 2) (ws !! 3) (ws !! 4) (ws !! 5) (ws !! 6))
   let gf = generateFunction (maxDepth args) (maxConstant args) ["x", "y"] normWeights
   fun_r <-
     if funR args == ""
@@ -212,11 +221,13 @@ perform args idx = do
   computeBounds f values = (computeBound f maximumBy values, computeBound f minimumBy values)
   normalizeWieghts ws =
     let
-      s6 = w1 ws + w2 ws + w3 ws + w4 ws + w5 ws + w6 ws
+      s7 = w1 ws + w2 ws + w3 ws + w4 ws + w5 ws + w6 ws + w7 ws
+      s6 = s7 - w7 ws
       s5 = s6 - w6 ws
       s4 = s5 - w5 ws
       s3 = s4 - w4 ws
       s2 = s3 - w3 ws
       s1 = s2 - w2 ws
+      d = s7
      in
-      Weights (s1 / s6) (s2 / s6) (s3 / s6) (s4 / s6) (s5 / s6) (s6 / s6)
+      Weights (s1 / d) (s2 / d) (s3 / d) (s4 / d) (s5 / d) (s6 / d) (s7 / d)
