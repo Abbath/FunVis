@@ -39,6 +39,15 @@ prettyPrint (Pow n e1) = "(" <> prettyPrint e1 <> "^" <> showT n <> ")"
 prettyPrint (Fun f e1) = f <> "(" <> prettyPrint e1 <> ")"
 prettyPrint (If cond a b c d) = "if(" <> prettyPrint a <> (if cond == Equal then "==" else "<") <> prettyPrint b <> ", " <> prettyPrint c <> ", " <> prettyPrint d <> ")"
 
+testFunction :: Expr -> Bool
+testFunction (Param _) = True
+testFunction (Num _) = False
+testFunction (Add e1 e2) = testFunction e1 || testFunction e2
+testFunction (Mul e1 e2) = testFunction e1 || testFunction e2
+testFunction (Pow _ e1) = testFunction e1
+testFunction (Fun _ e1) = testFunction e1
+testFunction (If _ e1 e2 e3 e4) = (testFunction e1 || testFunction e2) && (testFunction e3 || testFunction e4)
+
 generateFunction :: (StatefulGen g m) => Int -> Double -> [Text] -> Weights -> g -> m Expr
 generateFunction depth mc ps ws gen
   | depth == 0 = do
@@ -153,6 +162,13 @@ main = do
  where
   opts = info (options <**> helper) (fullDesc <> progDesc "Function Visualisation" <> header "Visualise a random function")
 
+generateFunctionWrapper :: (StatefulGen g m) => Int -> Double -> [Text] -> Weights -> g -> m Expr
+generateFunctionWrapper md mc ps ws g = do
+  fun <- generateFunction md mc ps ws g
+  if testFunction fun
+    then pure fun
+    else generateFunctionWrapper md mc ps ws g
+
 perform :: Options -> Int -> IO ()
 perform args idx = do
   gen_r <- newStdGen >>= newIOGenM
@@ -160,7 +176,7 @@ perform args idx = do
   gen_b <- newStdGen >>= newIOGenM
   let ws = read @[Double] . T.unpack . ("[" <>) . (<> "]") . T.intercalate ", " . T.words $ weights args
   let normWeights = normalizeWieghts (Weights (head ws) (ws !! 1) (ws !! 2) (ws !! 3) (ws !! 4) (ws !! 5) (ws !! 6))
-  let gf = generateFunction (maxDepth args) (maxConstant args) ["x", "y"] normWeights
+  let gf = generateFunctionWrapper (maxDepth args) (maxConstant args) ["x", "y"] normWeights
   fun_r <-
     if funR args == ""
       then gf gen_r
