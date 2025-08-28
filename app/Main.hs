@@ -14,7 +14,6 @@ import Data.Map (Map, (!))
 import Data.Text (Text, pack)
 import Data.Text qualified as T
 import Data.Text.IO qualified as T
-import Data.Time
 import Data.Vector qualified as V
 import Data.Vector.Storable qualified as VS
 import Data.Word
@@ -25,8 +24,6 @@ import System.IO (IOMode (WriteMode), hPutStrLn, hSetBinaryMode, withFile)
 import System.Random.Stateful
 import Text.Megaparsec.Error
 import Text.Printf
-
--- data Expr = Param Text | Num Double | Add Expr Expr | Mul Expr Expr | Pow Expr | Fun Text Expr deriving (Show)
 
 showT :: (Show a) => a -> Text
 showT = pack . show
@@ -202,13 +199,13 @@ perform args idx = do
               let (x, y) = n `divMod` width
                   (xd, yd) = (d x width, d y height)
                   cfp = computeFunction [("x", xd), ("y", yd)]
-               in if singleFunction args then let val = cfp fun_r in V.replicate 3 val else [cfp fun_r, cfp fun_g, cfp fun_b]
+               in if singleFunction args then let val = cfp fun_r in (val, val, val) else (cfp fun_r, cfp fun_g, cfp fun_b)
           )
-  let (maxValue_r, minValue_r) = computeBounds (V.! 0) values
+  let (maxValue_r, minValue_r) = computeBounds (\(r, _, _) -> r) values
   let valueSpan_r = maxValue_r - minValue_r
-  let (maxValue_g, minValue_g) = computeBounds (V.! 1) values
+  let (maxValue_g, minValue_g) = computeBounds (\(_, g, _) -> g) values
   let valueSpan_g = maxValue_g - minValue_g
-  let (maxValue_b, minValue_b) = computeBounds (V.! 2) values
+  let (maxValue_b, minValue_b) = computeBounds (\(_, _, b) -> b) values
   let valueSpan_b = maxValue_b - minValue_b
   let filename =
         if idx == -1
@@ -219,10 +216,10 @@ perform args idx = do
       let !values_storable =
             VS.convert $
               V.concatMap
-                ( \v ->
-                    [ compute (v V.! 0) minValue_r valueSpan_r
-                    , compute (v V.! 1) minValue_g valueSpan_g
-                    , compute (v V.! 2) minValue_b valueSpan_b
+                ( \(v_r, v_g, v_b) ->
+                    [ compute v_r minValue_r valueSpan_r
+                    , compute v_g minValue_g valueSpan_g
+                    , compute v_b minValue_b valueSpan_b
                     ]
                 )
                 values
@@ -233,10 +230,10 @@ perform args idx = do
       hPutStrLn h "255 "
       when (outputType args == BinaryOutput) $ hSetBinaryMode h True
       V.mapM_
-        ( \v ->
-            let c_r = compute (v V.! 0) minValue_r valueSpan_r
-                c_g = compute (v V.! 1) minValue_g valueSpan_g
-                c_b = compute (v V.! 2) minValue_b valueSpan_b
+        ( \(v_r, v_g, v_b) ->
+            let c_r = compute v_r minValue_r valueSpan_r
+                c_g = compute v_g minValue_g valueSpan_g
+                c_b = compute v_b minValue_b valueSpan_b
              in case outputType args of
                   BinaryOutput -> BS.hPut h [fromIntegral c_r, fromIntegral c_g, fromIntegral c_b]
                   TextOutput -> hPutStrLn h $ show @Word8 c_r <> " " <> show @Word8 c_g <> " " <> show @Word8 c_b
