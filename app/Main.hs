@@ -39,7 +39,7 @@ prettyPrint (Mul (Num (-1)) e2) = "(-" <> prettyPrint e2 <> ")"
 prettyPrint (Mul e1 e2) = "(" <> prettyPrint e1 <> " * " <> prettyPrint e2 <> ")"
 prettyPrint (Pow n e1) = "(" <> prettyPrint e1 <> "^" <> showT n <> ")"
 prettyPrint (Fun f e1) = f <> "(" <> prettyPrint e1 <> ")"
-prettyPrint (If cond a b c d) = "if(" <> prettyPrint a <> (if cond == Equal then "==" else "<") <> prettyPrint b <> ", " <> prettyPrint c <> ", " <> prettyPrint d <> ")"
+prettyPrint (If cond a b c d) = "if(" <> prettyPrint a <> (if cond == Equal then " == " else " < ") <> prettyPrint b <> ", " <> prettyPrint c <> ", " <> prettyPrint d <> ")"
 
 testFunction :: Expr -> Bool
 testFunction (Param _) = True
