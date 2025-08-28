@@ -78,6 +78,7 @@ executable FunVis
                     , parser-combinators
                     , JuicyPixels
                     , vector
+                    , time
 
     -- Directories containing source files.
     hs-source-dirs:   app

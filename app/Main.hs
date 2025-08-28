@@ -14,7 +14,9 @@ import Data.Map (Map, (!))
 import Data.Text (Text, pack)
 import Data.Text qualified as T
 import Data.Text.IO qualified as T
-import Data.Vector.Storable qualified as V
+import Data.Time
+import Data.Vector qualified as V
+import Data.Vector.Storable qualified as VS
 import Data.Word
 import ExprParser (Cond (..), Expr (..), parseExpr)
 import Options.Applicative
@@ -93,8 +95,6 @@ computeFunction m e = case e of
   _ -> error "Unreachable!"
  where
   cf = computeFunction m
-
-data Rgb = Rgb {r :: Double, g :: Double, b :: Double}
 
 data Output = PngOutput | TextOutput | BinaryOutput deriving (Eq, Show)
 
@@ -194,39 +194,49 @@ perform args idx = do
   unless (singleFunction args) $ T.putStrLn $ prettyPrint fun_b
   let width = imageWidth args
   let height = imageHeight args
-  let values =
-        map
+  let d c s = fromIntegral c / fromIntegral s * fieldSize args - fieldSize args / 2
+  let !values =
+        V.generate
+          (width * height)
           ( \n ->
               let (x, y) = n `divMod` width
-                  d c s = fromIntegral c / fromIntegral s * fieldSize args - fieldSize args / 2
                   (xd, yd) = (d x width, d y height)
                   cfp = computeFunction [("x", xd), ("y", yd)]
-               in if singleFunction args then let val = cfp fun_r in Rgb val val val else Rgb (cfp fun_r) (cfp fun_g) (cfp fun_b)
+               in if singleFunction args then let val = cfp fun_r in V.replicate 3 val else [cfp fun_r, cfp fun_g, cfp fun_b]
           )
-          ([0 .. width * height - 1] :: [Int])
-  let (maxValue_r, minValue_r) = computeBounds r values
+  let (maxValue_r, minValue_r) = computeBounds (V.! 0) values
   let valueSpan_r = maxValue_r - minValue_r
-  let (maxValue_g, minValue_g) = computeBounds g values
+  let (maxValue_g, minValue_g) = computeBounds (V.! 1) values
   let valueSpan_g = maxValue_g - minValue_g
-  let (maxValue_b, minValue_b) = computeBounds b values
+  let (maxValue_b, minValue_b) = computeBounds (V.! 2) values
   let valueSpan_b = maxValue_b - minValue_b
-  let values3 = V.concat $ map (\(Rgb r g b) -> V.fromList [compute r minValue_r valueSpan_r, compute g minValue_g valueSpan_g, compute b minValue_b valueSpan_b]) values
   let filename =
         if idx == -1
           then output args
           else replaceBaseName (output args) (takeBaseName (output args) <> "_" <> printf "%03d" idx)
   case outputType args of
-    PngOutput -> J.writePng @J.PixelRGB8 (filename -<.> "png") (J.Image width height values3)
+    PngOutput -> do
+      let !values_storable =
+            VS.convert $
+              V.concatMap
+                ( \v ->
+                    [ compute (v V.! 0) minValue_r valueSpan_r
+                    , compute (v V.! 1) minValue_g valueSpan_g
+                    , compute (v V.! 2) minValue_b valueSpan_b
+                    ]
+                )
+                values
+      J.writePng @J.PixelRGB8 (filename -<.> "png") (J.Image width height values_storable)
     _ -> withFile (filename -<.> "ppm") WriteMode $ \h -> do
       hPutStrLn h (if outputType args /= BinaryOutput then "P3" else "P6")
       hPutStrLn h $ show width <> " " <> show height
       hPutStrLn h "255 "
       when (outputType args == BinaryOutput) $ hSetBinaryMode h True
-      mapM_
-        ( \(Rgb v_r v_g v_b) ->
-            let c_r = compute v_r minValue_r valueSpan_r
-                c_g = compute v_g minValue_g valueSpan_g
-                c_b = compute v_b minValue_b valueSpan_b
+      V.mapM_
+        ( \v ->
+            let c_r = compute (v V.! 0) minValue_r valueSpan_r
+                c_g = compute (v V.! 1) minValue_g valueSpan_g
+                c_b = compute (v V.! 2) minValue_b valueSpan_b
              in case outputType args of
                   BinaryOutput -> BS.hPut h [fromIntegral c_r, fromIntegral c_g, fromIntegral c_b]
                   TextOutput -> hPutStrLn h $ show @Word8 c_r <> " " <> show @Word8 c_g <> " " <> show @Word8 c_b
@@ -234,7 +244,7 @@ perform args idx = do
         values
  where
   compute :: Double -> Double -> Double -> Word8
-  compute v minValue valueSpan = fromInteger . (`mod` 256) . truncate $ (v - minValue) / valueSpan * 255
+  compute v minValue valueSpan = truncate $ (v - minValue) / valueSpan * 255
   computeBound f g values = f $ g (compare `on` f) values
   computeBounds f values = (computeBound f maximumBy values, computeBound f minimumBy values)
   normalizeWieghts ws =
