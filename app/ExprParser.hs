@@ -14,6 +14,8 @@ import Text.Megaparsec.Char.Lexer qualified as L
 
 data Cond = Equal | Less deriving (Show, Eq)
 
+data FunType = Sin | Abs | Sqrt | Log | Inv deriving (Show, Eq)
+
 -- AST
 data Expr
   = Param Text
@@ -21,7 +23,7 @@ data Expr
   | Add Expr Expr
   | Mul Expr Expr
   | Pow Double Expr
-  | Fun Text Expr
+  | Fun FunType Expr
   | If Cond Expr Expr Expr Expr
   deriving (Show)
 
@@ -54,7 +56,18 @@ pFun :: Parser Expr
 pFun = do
   fname <- lexeme (some letterChar)
   arg <- parens pExpr
-  return (Fun (pack fname) arg)
+  return
+    ( Fun
+        ( case fname of
+            "sin" -> Sin
+            "abs" -> Abs
+            "sqrt" -> Sqrt
+            "log" -> Log
+            "inv" -> Inv
+            _ -> error "Wrong function name"
+        )
+        arg
+    )
 
 pIfArgs :: Parser (Cond, Expr, Expr, Expr, Expr)
 pIfArgs = do

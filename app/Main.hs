@@ -10,14 +10,13 @@ import Control.Monad (forM_, unless, when)
 import Data.ByteString qualified as BS
 import Data.Foldable (maximumBy, minimumBy)
 import Data.Function (on)
-import Data.Map (Map, (!))
 import Data.Text (Text, pack)
 import Data.Text qualified as T
 import Data.Text.IO qualified as T
 import Data.Vector qualified as V
 import Data.Vector.Storable qualified as VS
 import Data.Word
-import ExprParser (Cond (..), Expr (..), parseExpr)
+import ExprParser (Cond (..), Expr (..), FunType (..), parseExpr)
 import Options.Applicative
 import System.FilePath (replaceBaseName, takeBaseName, (-<.>))
 import System.IO (IOMode (WriteMode), hPutStrLn, hSetBinaryMode, withFile)
@@ -28,6 +27,13 @@ import Text.Printf
 showT :: (Show a) => a -> Text
 showT = pack . show
 
+prettyPrintFun :: FunType -> Text
+prettyPrintFun Sin = "sin"
+prettyPrintFun Abs = "abs"
+prettyPrintFun Sqrt = "sqrt"
+prettyPrintFun Log = "log"
+prettyPrintFun Inv = "inv"
+
 prettyPrint :: Expr -> Text
 prettyPrint (Param p) = p
 prettyPrint (Num x) = showT x
@@ -35,7 +41,7 @@ prettyPrint (Add e1 e2) = "(" <> prettyPrint e1 <> " + " <> prettyPrint e2 <> ")
 prettyPrint (Mul (Num (-1)) e2) = "(-" <> prettyPrint e2 <> ")"
 prettyPrint (Mul e1 e2) = "(" <> prettyPrint e1 <> " * " <> prettyPrint e2 <> ")"
 prettyPrint (Pow n e1) = "(" <> prettyPrint e1 <> "^" <> showT n <> ")"
-prettyPrint (Fun f e1) = f <> "(" <> prettyPrint e1 <> ")"
+prettyPrint (Fun f e1) = prettyPrintFun f <> "(" <> prettyPrint e1 <> ")"
 prettyPrint (If cond a b c d) = "if(" <> prettyPrint a <> (if cond == Equal then " == " else " < ") <> prettyPrint b <> ", " <> prettyPrint c <> ", " <> prettyPrint d <> ")"
 
 testFunction :: Expr -> Bool
@@ -63,7 +69,7 @@ generateFunction depth mc ps ws gen
         | choice < w4 ws -> Mul <$> gf <*> gf
         | choice < w5 ws -> Pow <$> randomChoice [2.0, 3.0] <*> gf
         | choice < w6 ws -> If <$> randomChoice [Equal, Less] <*> gf <*> gf <*> gf <*> gf
-        | otherwise -> Fun <$> randomChoice ["sin", "abs", "sqrt", "log", "inv"] <*> gf
+        | otherwise -> Fun <$> randomChoice [Sin, Abs, Sqrt, Log, Inv] <*> gf
  where
   gf = generateFunction (depth - 1) mc ps ws gen
   randomNumber = uniformRM (-mc, mc) gen
@@ -71,18 +77,19 @@ generateFunction depth mc ps ws gen
     idx <- uniformRM (0 :: Int, length v - 1) gen
     pure $ v !! idx
 
-computeFunction :: Map Text Double -> Expr -> Double
-computeFunction m e = case e of
+computeFunction :: (Double, Double) -> Expr -> Double
+computeFunction m@(px, py) e = case e of
   Num x -> x
-  Param n -> m ! n
+  Param "x" -> px
+  Param "y" -> py
   Add e1 e2 -> cf e1 + cf e2
   Mul e1 e2 -> cf e1 * cf e2
   Pow n e1 -> cf e1 ** n
-  Fun "sin" e1 -> sin $ cf e1
-  Fun "abs" e1 -> abs $ cf e1
-  Fun "sqrt" e1 -> sqrt $ cf e1
-  Fun "log" e1 -> log $ cf e1
-  Fun "inv" e1 -> let d = cf e1 in if d == 0 then d else 1 / cf e1
+  Fun Sin e1 -> sin $ cf e1
+  Fun Abs e1 -> abs $ cf e1
+  Fun Sqrt e1 -> sqrt $ cf e1
+  Fun Log e1 -> log $ cf e1
+  Fun Inv e1 -> let d = cf e1 in if d == 0 then d else 1 / cf e1
   If cond a b c d ->
     if case cond of
       Equal -> cf a == cf b
@@ -198,7 +205,7 @@ perform args idx = do
           ( \n ->
               let (x, y) = n `divMod` width
                   (xd, yd) = (d x width, d y height)
-                  cfp = computeFunction [("x", xd), ("y", yd)]
+                  cfp = computeFunction (xd, yd)
                in if singleFunction args then let val = cfp fun_r in (val, val, val) else (cfp fun_r, cfp fun_g, cfp fun_b)
           )
   let (maxValue_r, minValue_r) = computeBounds (\(r, _, _) -> r) values
