@@ -1,4 +1,3 @@
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -6,10 +5,7 @@
 module Main (main) where
 
 import Codec.Picture qualified as J
-import Control.Monad (forM_, unless, when)
-import Data.ByteString qualified as BS
-import Data.Foldable (maximumBy, minimumBy)
-import Data.Function (on)
+import Control.Monad (forM_, unless)
 import Data.Text (Text, pack)
 import Data.Text qualified as T
 import Data.Text.IO qualified as T
@@ -19,7 +15,6 @@ import Data.Word
 import ExprParser (Cond (..), Expr (..), FunType (..), parseExpr)
 import Options.Applicative
 import System.FilePath (replaceBaseName, takeBaseName, (-<.>))
-import System.IO (IOMode (WriteMode), hPutStrLn, hSetBinaryMode, withFile)
 import System.Random.Stateful
 import Text.Megaparsec.Error
 import Text.Printf
@@ -102,13 +97,6 @@ computeFunction m@(px, py) e = case e of
 
 data Output = PngOutput | TextOutput | BinaryOutput deriving (Eq, Show)
 
-parseOutput :: ReadM Output
-parseOutput = eitherReader $ \case
-  "png" -> pure PngOutput
-  "text" -> pure TextOutput
-  "bin" -> pure BinaryOutput
-  _ -> error "Wrong output format"
-
 data Options = Options
   { maxDepth :: Int
   , fieldSize :: Double
@@ -116,7 +104,6 @@ data Options = Options
   , imageHeight :: Int
   , maxConstant :: Double
   , weights :: Text
-  , outputType :: Output
   , output :: FilePath
   , funR :: Text
   , funG :: Text
@@ -134,7 +121,6 @@ options =
     <*> option auto (long "height" <> short 'h' <> help "Height in pixels" <> showDefault <> value 1024 <> metavar "HEIGHT")
     <*> option auto (long "max-constant" <> short 'c' <> help "Maximum constant range" <> showDefault <> value 10.0 <> metavar "MAX_CONSTANT")
     <*> strOption (long "weights" <> short 't' <> help "Weights" <> showDefault <> value "1 1 1 1 1 1 1" <> metavar "WEIGHTS")
-    <*> option parseOutput (long "output-format" <> short 'f' <> help "Output format (png, text, bin)" <> value PngOutput <> metavar "FORMAT")
     <*> strOption (long "output" <> short 'o' <> help "Output file name" <> showDefault <> value "image.png" <> metavar "OUTPUT")
     <*> strOption (long "red" <> short 'r' <> help "Red channel function" <> value "" <> metavar "RED_FUNCTION")
     <*> strOption (long "green" <> short 'g' <> help "Green channel function" <> value "" <> metavar "GREEN_FUNCTION")
@@ -199,58 +185,43 @@ perform args idx = do
   let width = imageWidth args
   let height = imageHeight args
   let d c s = fromIntegral c / fromIntegral s * fieldSize args - fieldSize args / 2
+  let funs = [fun_r, fun_g, fun_b] :: [Expr]
   let !values =
         V.generate
-          (width * height)
+          (width * height * 3)
           ( \n ->
-              let (x, y) = n `divMod` width
+              let i = n `mod` 3
+                  (x, y) = (n `div` 3) `divMod` width
                   (xd, yd) = (d x width, d y height)
                   cfp = computeFunction (xd, yd)
-               in if singleFunction args then let val = cfp fun_r in (val, val, val) else (cfp fun_r, cfp fun_g, cfp fun_b)
+               in if singleFunction args then cfp (head funs) else cfp (funs !! i)
           )
-  let (maxValue_r, minValue_r) = computeBounds (\(r, _, _) -> r) values
+  let (maxValue_r, minValue_r) = computeBounds (V.ifilter (\i _ -> i `mod` 3 == 0) values)
   let valueSpan_r = maxValue_r - minValue_r
-  let (maxValue_g, minValue_g) = computeBounds (\(_, g, _) -> g) values
+  let (maxValue_g, minValue_g) = computeBounds (V.ifilter (\i _ -> i `mod` 3 == 1) values)
   let valueSpan_g = maxValue_g - minValue_g
-  let (maxValue_b, minValue_b) = computeBounds (\(_, _, b) -> b) values
+  let (maxValue_b, minValue_b) = computeBounds (V.ifilter (\i _ -> i `mod` 3 == 2) values)
   let valueSpan_b = maxValue_b - minValue_b
   let filename =
         if idx == -1
           then output args
           else replaceBaseName (output args) (takeBaseName (output args) <> "_" <> printf "%03d" idx)
-  case outputType args of
-    PngOutput -> do
-      let !values_storable =
-            VS.convert $
-              V.concatMap
-                ( \(v_r, v_g, v_b) ->
-                    [ compute v_r minValue_r valueSpan_r
-                    , compute v_g minValue_g valueSpan_g
-                    , compute v_b minValue_b valueSpan_b
-                    ]
-                )
-                values
-      J.writePng @J.PixelRGB8 (filename -<.> "png") (J.Image width height values_storable)
-    _ -> withFile (filename -<.> "ppm") WriteMode $ \h -> do
-      hPutStrLn h (if outputType args /= BinaryOutput then "P3" else "P6")
-      hPutStrLn h $ show width <> " " <> show height
-      hPutStrLn h "255 "
-      when (outputType args == BinaryOutput) $ hSetBinaryMode h True
-      V.mapM_
-        ( \(v_r, v_g, v_b) ->
-            let c_r = compute v_r minValue_r valueSpan_r
-                c_g = compute v_g minValue_g valueSpan_g
-                c_b = compute v_b minValue_b valueSpan_b
-             in case outputType args of
-                  BinaryOutput -> BS.hPut h [fromIntegral c_r, fromIntegral c_g, fromIntegral c_b]
-                  TextOutput -> hPutStrLn h $ show @Word8 c_r <> " " <> show @Word8 c_g <> " " <> show @Word8 c_b
-        )
-        values
+  do
+    let !values_storable =
+          VS.convert $
+            V.imap
+              ( \i v -> case i `mod` 3 of
+                  0 -> compute v minValue_r valueSpan_r
+                  1 -> compute v minValue_g valueSpan_g
+                  2 -> compute v minValue_b valueSpan_b
+                  _ -> error "Unreachable"
+              )
+              values
+    J.writePng @J.PixelRGB8 (filename -<.> "png") (J.Image width height values_storable)
  where
   compute :: Double -> Double -> Double -> Word8
   compute v minValue valueSpan = truncate $ (v - minValue) / valueSpan * 255
-  computeBound f g values = f $ g (compare `on` f) values
-  computeBounds f values = (computeBound f maximumBy values, computeBound f minimumBy values)
+  computeBounds values = (maximum values, minimum values)
   normalizeWieghts ws =
     let
       s7 = w1 ws + w2 ws + w3 ws + w4 ws + w5 ws + w6 ws + w7 ws
