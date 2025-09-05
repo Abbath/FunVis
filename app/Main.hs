@@ -11,6 +11,7 @@ import Data.Text qualified as T
 import Data.Text.IO qualified as T
 import Data.Vector qualified as V
 import Data.Vector.Storable qualified as VS
+import Data.Vector.Unboxed qualified as VU
 import ExprParser (Cond (..), Expr (..), FunType (..), parseExpr)
 import Options.Applicative
 import System.FilePath (replaceBaseName, takeBaseName, (-<.>))
@@ -187,18 +188,18 @@ perform args idx = do
   let d c s = fromIntegral c / fromIntegral s * fs - fs / 2
   let funs = if singleFunction args then [fun_r, fun_r, fun_r] else [fun_r, fun_g, fun_b] :: V.Vector Expr
   let values =
-        V.generate
+        VU.generate
           (width * height * 3)
           ( \n ->
               let (m, i) = n `divMod` 3
                   (x, y) = m `divMod` width
                in computeFunction (d x width, d y height) (funs V.! i)
           )
-  let (maxValue_r, minValue_r) = computeBounds (V.ifilter (\i _ -> i `mod` 3 == 0) values)
+  let (maxValue_r, minValue_r) = computeBounds (VU.ifilter (\i _ -> i `mod` 3 == 0) values)
   let valueSpan_r = (maxValue_r - minValue_r) / 255
-  let (maxValue_g, minValue_g) = computeBounds (V.ifilter (\i _ -> i `mod` 3 == 1) values)
+  let (maxValue_g, minValue_g) = computeBounds (VU.ifilter (\i _ -> i `mod` 3 == 1) values)
   let valueSpan_g = (maxValue_g - minValue_g) / 255
-  let (maxValue_b, minValue_b) = computeBounds (V.ifilter (\i _ -> i `mod` 3 == 2) values)
+  let (maxValue_b, minValue_b) = computeBounds (VU.ifilter (\i _ -> i `mod` 3 == 2) values)
   let valueSpan_b = (maxValue_b - minValue_b) / 255
   let filename =
         if idx == -1
@@ -207,7 +208,7 @@ perform args idx = do
   do
     let values_storable =
           VS.convert $
-            V.imap
+            VU.imap
               ( \i v -> truncate $ case i `mod` 3 of
                   0 -> compute v minValue_r valueSpan_r
                   1 -> compute v minValue_g valueSpan_g
@@ -219,7 +220,7 @@ perform args idx = do
  where
   compute :: Double -> Double -> Double -> Double
   compute v minValue valueSpan = (v - minValue) / valueSpan
-  computeBounds values = (V.maximum values, V.minimum values)
+  computeBounds values = (VU.maximum values, VU.minimum values)
   normalizeWieghts ws =
     let
       s7 = w1 ws + w2 ws + w3 ws + w4 ws + w5 ws + w6 ws + w7 ws
