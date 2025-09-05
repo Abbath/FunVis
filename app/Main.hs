@@ -37,7 +37,7 @@ prettyPrint (Mul (Num (-1)) e2) = "(-" <> prettyPrint e2 <> ")"
 prettyPrint (Mul e1 e2) = "(" <> prettyPrint e1 <> " * " <> prettyPrint e2 <> ")"
 prettyPrint (Pow n e1) = "(" <> prettyPrint e1 <> "^" <> showT n <> ")"
 prettyPrint (Fun f e1) = prettyPrintFun f <> "(" <> prettyPrint e1 <> ")"
-prettyPrint (If cond a b c d) = "if(" <> prettyPrint a <> (if cond == Equal then " == " else " < ") <> prettyPrint b <> ", " <> prettyPrint c <> ", " <> prettyPrint d <> ")"
+prettyPrint (If cond a b c d) = "if(" <> prettyPrint a <> (if cond == GreaterEqual then " >= " else " < ") <> prettyPrint b <> ", " <> prettyPrint c <> ", " <> prettyPrint d <> ")"
 
 testFunction :: Expr -> Bool
 testFunction (Param _) = True
@@ -48,7 +48,7 @@ testFunction (Pow _ e1) = testFunction e1
 testFunction (Fun _ e1) = testFunction e1
 testFunction (If _ e1 e2 e3 e4) = (testFunction e1 || testFunction e2) && (testFunction e3 || testFunction e4)
 
-generateFunction :: (StatefulGen g m) => Int -> Double -> [Text] -> Weights -> g -> m Expr
+generateFunction :: (StatefulGen g m) => Int -> Double -> V.Vector Text -> Weights -> g -> m Expr
 generateFunction depth mc ps ws gen
   | depth == 0 = do
       choice <- uniformRM (0 :: Int, 1) gen
@@ -63,14 +63,14 @@ generateFunction depth mc ps ws gen
         | choice < w3 ws -> Add <$> gf <*> gf
         | choice < w4 ws -> Mul <$> gf <*> gf
         | choice < w5 ws -> Pow <$> randomChoice [2.0, 3.0] <*> gf
-        | choice < w6 ws -> If <$> randomChoice [Equal, Less] <*> gf <*> gf <*> gf <*> gf
+        | choice < w6 ws -> If <$> randomChoice [GreaterEqual, Less] <*> gf <*> gf <*> gf <*> gf
         | otherwise -> Fun <$> randomChoice [Sin, Abs, Sqrt, Log, Inv] <*> gf
  where
   gf = generateFunction (depth - 1) mc ps ws gen
   randomNumber = uniformRM (-mc, mc) gen
   randomChoice v = do
     idx <- uniformRM (0 :: Int, length v - 1) gen
-    pure $ v !! idx
+    pure $ v V.! idx
 
 computeFunction :: (Double, Double) -> Expr -> Double
 computeFunction m@(px, py) e = case e of
@@ -87,7 +87,7 @@ computeFunction m@(px, py) e = case e of
   Fun Inv e1 -> let d = cf e1 in if d == 0 then d else 1 / cf e1
   If cond a b c d ->
     if case cond of
-      Equal -> cf a == cf b
+      GreaterEqual -> cf a >= cf b
       Less -> cf a < cf b
       then cf c
       else cf d
@@ -152,7 +152,7 @@ main = do
  where
   opts = info (options <**> helper) (fullDesc <> progDesc "Function Visualisation" <> header "Visualise a random function")
 
-generateFunctionWrapper :: (StatefulGen g m) => Int -> Double -> [Text] -> Weights -> g -> m Expr
+generateFunctionWrapper :: (StatefulGen g m) => Int -> Double -> V.Vector Text -> Weights -> g -> m Expr
 generateFunctionWrapper md mc ps ws g = do
   fun <- generateFunction md mc ps ws g
   if testFunction fun

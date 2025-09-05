@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module ExprParser where
+module ExprParser (parseExpr, Expr (..), Cond (..), FunType (..)) where
 
 import Control.Monad.Combinators.Expr
 import Data.Text (
@@ -12,7 +12,7 @@ import Text.Megaparsec
 import Text.Megaparsec.Char
 import Text.Megaparsec.Char.Lexer qualified as L
 
-data Cond = Equal | Less deriving (Show, Eq)
+data Cond = GreaterEqual | Less deriving (Show, Eq)
 
 data FunType = Sin | Abs | Sqrt | Log | Inv deriving (Show, Eq)
 
@@ -72,13 +72,13 @@ pFun = do
 pIfArgs :: Parser (Cond, Expr, Expr, Expr, Expr)
 pIfArgs = do
   arg1 <- pExpr
-  c1 <- lexeme (symbol "==" <|> symbol "<")
+  c1 <- lexeme (symbol ">=" <|> symbol "<")
   arg2 <- pExpr
   _ <- symbol ","
   arg3 <- pExpr
   _ <- symbol ","
   arg4 <- pExpr
-  return (if c1 == "==" then Equal else Less, arg1, arg2, arg3, arg4)
+  return (if c1 == ">=" then GreaterEqual else Less, arg1, arg2, arg3, arg4)
 
 pIf :: Parser Expr
 pIf = do
