@@ -108,8 +108,10 @@ data Options = Options
   , funR :: Text
   , funG :: Text
   , funB :: Text
+  , funA :: Text
   , attempts :: Int
   , singleFunction :: Bool
+  , useAlpha :: Bool
   }
 
 options :: Parser Options
@@ -125,8 +127,10 @@ options =
     <*> strOption (long "red" <> short 'r' <> help "Red channel function" <> value "" <> metavar "RED_FUNCTION")
     <*> strOption (long "green" <> short 'g' <> help "Green channel function" <> value "" <> metavar "GREEN_FUNCTION")
     <*> strOption (long "blue" <> short 'b' <> help "Blue channel function" <> value "" <> metavar "BLUE_FUNCTION")
-    <*> option auto (long "attempts" <> short 'a' <> help "Number of attempts" <> showDefault <> value 0 <> metavar "ATTEMPTS")
+    <*> strOption (long "alpha" <> short 'a' <> help "Alpha channel function" <> value "" <> metavar "ALPHA_FUNCTION")
+    <*> option auto (long "attempts" <> short 'n' <> help "Number of attempts" <> showDefault <> value 0 <> metavar "ATTEMPTS")
     <*> switch (long "single-function" <> short 'l' <> help "Single function")
+    <*> switch (long "use-alpha" <> short 'p' <> help "Use alpha")
 
 data Weights = Weights
   { w1 :: Double
@@ -159,48 +163,50 @@ generateFunctionWrapper md mc ps ws g = do
     then pure fun
     else generateFunctionWrapper md mc ps ws g
 
+genFun :: (Applicative f) => Text -> f Expr -> f Expr
+genFun f g =
+  if f == ""
+    then g
+    else pure . parseFunction $ f
+
 perform :: Options -> Int -> IO ()
 perform args idx = do
   gen_r <- newStdGen >>= newIOGenM
   gen_g <- newStdGen >>= newIOGenM
   gen_b <- newStdGen >>= newIOGenM
+  gen_a <- newStdGen >>= newIOGenM
   let ws = read @[Double] . T.unpack . ("[" <>) . (<> "]") . T.intercalate ", " . T.words $ weights args
   let normWeights = normalizeWieghts (Weights (head ws) (ws !! 1) (ws !! 2) (ws !! 3) (ws !! 4) (ws !! 5) (ws !! 6))
   let gf = generateFunctionWrapper (maxDepth args) (maxConstant args) ["x", "y"] normWeights
-  fun_r <-
-    if funR args == ""
-      then gf gen_r
-      else pure . parseFunction $ funR args
+  fun_r <- genFun (funR args) (gf gen_r)
   T.putStrLn $ prettyPrint fun_r
-  fun_g <-
-    if funG args == ""
-      then gf gen_g
-      else pure . parseFunction $ funG args
+  fun_g <- genFun (funG args) (gf gen_g)
   unless (singleFunction args) $ T.putStrLn $ prettyPrint fun_g
-  fun_b <-
-    if funB args == ""
-      then gf gen_b
-      else pure . parseFunction $ funB args
+  fun_b <- genFun (funB args) (gf gen_b)
   unless (singleFunction args) $ T.putStrLn $ prettyPrint fun_b
+  fun_a <- genFun (funA args) (gf gen_a)
+  unless (singleFunction args) $ T.putStrLn $ prettyPrint fun_a
   let !width = imageWidth args
   let !height = imageHeight args
   let !fs = fieldSize args
   let d c s = fromIntegral c / fromIntegral s * fs - fs / 2
-  let funs = if singleFunction args then [fun_r, fun_r, fun_r] else [fun_r, fun_g, fun_b] :: V.Vector Expr
+  let funs = if singleFunction args then [fun_r, fun_r, fun_r, Num 1] else [fun_r, fun_g, fun_b, fun_a] :: V.Vector Expr
   let values =
         VU.generate
-          (width * height * 3)
+          (width * height * 4)
           ( \n ->
-              let (m, i) = n `divMod` 3
+              let (m, i) = n `divMod` 4
                   (x, y) = m `divMod` width
                in computeFunction (d x width, d y height) (funs V.! i)
           )
-  let (maxValue_r, minValue_r) = computeBounds (VU.ifilter (\i _ -> i `mod` 3 == 0) values)
+  let (maxValue_r, minValue_r) = computeBounds (VU.ifilter (\i _ -> i `mod` 4 == 0) values)
   let valueSpan_r = (maxValue_r - minValue_r) / 255
-  let (maxValue_g, minValue_g) = computeBounds (VU.ifilter (\i _ -> i `mod` 3 == 1) values)
+  let (maxValue_g, minValue_g) = computeBounds (VU.ifilter (\i _ -> i `mod` 4 == 1) values)
   let valueSpan_g = (maxValue_g - minValue_g) / 255
-  let (maxValue_b, minValue_b) = computeBounds (VU.ifilter (\i _ -> i `mod` 3 == 2) values)
+  let (maxValue_b, minValue_b) = computeBounds (VU.ifilter (\i _ -> i `mod` 4 == 2) values)
   let valueSpan_b = (maxValue_b - minValue_b) / 255
+  let (maxValue_a, minValue_a) = computeBounds (VU.ifilter (\i _ -> i `mod` 4 == 3) values)
+  let valueSpan_a = (maxValue_a - minValue_a) / 255
   let filename =
         if idx == -1
           then output args
@@ -209,14 +215,15 @@ perform args idx = do
     let values_storable =
           VS.convert $
             VU.imap
-              ( \i v -> truncate $ case i `mod` 3 of
+              ( \i v -> truncate $ case i `mod` 4 of
                   0 -> compute v minValue_r valueSpan_r
                   1 -> compute v minValue_g valueSpan_g
                   2 -> compute v minValue_b valueSpan_b
+                  3 -> compute v minValue_a valueSpan_a
                   _ -> error "Unreachable"
               )
               values
-    J.writePng @J.PixelRGB8 (filename -<.> "png") (J.Image width height values_storable)
+    J.writePng @J.PixelRGBA8 (filename -<.> "png") (J.Image width height values_storable)
  where
   compute :: Double -> Double -> Double -> Double
   compute v minValue valueSpan = (v - minValue) / valueSpan
