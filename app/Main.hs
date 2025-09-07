@@ -5,6 +5,7 @@
 module Main (main) where
 
 import Control.Monad (forM_, unless)
+import Data.Massiv.Array (Ix2 ((:.)), IxN ((:>)), (!>), (.-), (./))
 import Data.Massiv.Array qualified as M
 import Data.Massiv.Array.IO qualified as MIO
 import Data.Text (Text, pack)
@@ -194,19 +195,19 @@ perform args idx = do
   let d c s = fromIntegral c / fromIntegral s * fs - fs / 2
   let funs = if singleFunction args then [fun_r, fun_r, fun_r, Num 1] else [fun_r, fun_g, fun_b, fun_a] :: V.Vector Expr
   let t = if idx == -1 then 0.0 else fromIntegral idx * 0.1
-  let massive_values = M.makeArray @M.D M.Par (M.Sz (4 M.:> width M.:. height)) (\(k M.:> i M.:. j) -> computeFunction (d i width, d j height, t) (funs V.! k))
-  let (max_r, min_r) = computeBounds $ massive_values M.!> 0
-  let (max_g, min_g) = computeBounds $ massive_values M.!> 1
-  let (max_b, min_b) = computeBounds $ massive_values M.!> 2
-  let (max_a, min_a) = computeBounds $ massive_values M.!> 3
+  let massive_values = M.makeArray @M.D M.Par (M.Sz (4 :> width :. height)) (\(k :> i :. j) -> computeFunction (d i width, d j height, t) (funs V.! k))
+  let (max_r, min_r) = computeBounds $ massive_values !> 0
+  let (max_g, min_g) = computeBounds $ massive_values !> 1
+  let (max_b, min_b) = computeBounds $ massive_values !> 2
+  let (max_a, min_a) = computeBounds $ massive_values !> 3
   let span_r = (max_r - min_r) / 255
   let span_g = (max_g - min_g) / 255
   let span_b = (max_b - min_b) / 255
   let span_a = (max_a - min_a) / 255
-  let arr_r = ((massive_values M.!> 0) M..- min_r) M../ span_r
-  let arr_g = ((massive_values M.!> 0) M..- min_g) M../ span_g
-  let arr_b = ((massive_values M.!> 0) M..- min_b) M../ span_b
-  let arr_a = ((massive_values M.!> 0) M..- min_a) M../ span_a
+  let arr_r = ((massive_values !> 0) .- min_r) ./ span_r
+  let arr_g = ((massive_values !> 1) .- min_g) ./ span_g
+  let arr_b = ((massive_values !> 2) .- min_b) ./ span_b
+  let arr_a = ((massive_values !> 3) .- min_a) ./ span_a
   let arr = M.zipWith4 (\r g b a -> C.Pixel $ CM.ColorRGBA (truncate r :: Word8) (truncate g :: Word8) (truncate b :: Word8) (255 - truncate a :: Word8)) arr_r arr_g arr_b arr_a :: MIO.Image M.D (C.Alpha CM.RGB) Word8
   let filename =
         if idx == -1
