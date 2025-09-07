@@ -49,7 +49,7 @@ pNum = Num <$> (try (lexeme L.float) <|> lexeme L.decimal)
 
 -- Variable parser
 pVar :: Parser Expr
-pVar = Param . pack <$> lexeme (symbol "x" <|> symbol "y")
+pVar = Param . pack <$> lexeme (symbol "x" <|> symbol "y" <|> symbol "t")
 
 -- Function parser (like sin(expr), log(expr), abs(expr))
 pFun :: Parser Expr

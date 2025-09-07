@@ -72,11 +72,12 @@ generateFunction depth mc ps ws gen
     idx <- uniformRM (0 :: Int, length v - 1) gen
     pure $ v V.! idx
 
-computeFunction :: (Double, Double) -> Expr -> Double
-computeFunction m@(px, py) e = case e of
+computeFunction :: (Double, Double, Double) -> Expr -> Double
+computeFunction m@(px, py, pt) e = case e of
   Num x -> x
   Param "x" -> px
   Param "y" -> py
+  Param "t" -> pt
   Add e1 e2 -> cf e1 + cf e2
   Mul e1 e2 -> cf e1 * cf e2
   Pow n e1 -> cf e1 ** n
@@ -111,7 +112,6 @@ data Options = Options
   , funA :: Text
   , attempts :: Int
   , singleFunction :: Bool
-  , useAlpha :: Bool
   }
 
 options :: Parser Options
@@ -130,7 +130,6 @@ options =
     <*> strOption (long "alpha" <> short 'a' <> help "Alpha channel function" <> value "" <> metavar "ALPHA_FUNCTION")
     <*> option auto (long "attempts" <> short 'n' <> help "Number of attempts" <> showDefault <> value 0 <> metavar "ATTEMPTS")
     <*> switch (long "single-function" <> short 'l' <> help "Single function")
-    <*> switch (long "use-alpha" <> short 'p' <> help "Use alpha")
 
 data Weights = Weights
   { w1 :: Double
@@ -177,7 +176,7 @@ perform args idx = do
   gen_a <- newStdGen >>= newIOGenM
   let ws = read @[Double] . T.unpack . ("[" <>) . (<> "]") . T.intercalate ", " . T.words $ weights args
   let normWeights = normalizeWieghts (Weights (head ws) (ws !! 1) (ws !! 2) (ws !! 3) (ws !! 4) (ws !! 5) (ws !! 6))
-  let gf = generateFunctionWrapper (maxDepth args) (maxConstant args) ["x", "y"] normWeights
+  let gf = generateFunctionWrapper (maxDepth args) (maxConstant args) ["x", "y", "t"] normWeights
   fun_r <- genFun (funR args) (gf gen_r)
   T.putStrLn $ prettyPrint fun_r
   fun_g <- genFun (funG args) (gf gen_g)
@@ -191,13 +190,14 @@ perform args idx = do
   let !fs = fieldSize args
   let d c s = fromIntegral c / fromIntegral s * fs - fs / 2
   let funs = if singleFunction args then [fun_r, fun_r, fun_r, Num 1] else [fun_r, fun_g, fun_b, fun_a] :: V.Vector Expr
+  let t = if idx == -1 then 0.0 else fromIntegral idx * 0.1
   let values =
         VU.generate
           (width * height * 4)
           ( \n ->
               let (m, i) = n `divMod` 4
                   (x, y) = m `divMod` width
-               in computeFunction (d x width, d y height) (funs V.! i)
+               in computeFunction (d x width, d y height, t) (funs V.! i)
           )
   let (maxValue_r, minValue_r) = computeBounds (VU.ifilter (\i _ -> i `mod` 4 == 0) values)
   let valueSpan_r = (maxValue_r - minValue_r) / 255
@@ -219,7 +219,7 @@ perform args idx = do
                   0 -> compute v minValue_r valueSpan_r
                   1 -> compute v minValue_g valueSpan_g
                   2 -> compute v minValue_b valueSpan_b
-                  3 -> compute v minValue_a valueSpan_a
+                  3 -> 255 - compute v minValue_a valueSpan_a
                   _ -> error "Unreachable"
               )
               values
