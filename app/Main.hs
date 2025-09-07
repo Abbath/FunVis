@@ -4,15 +4,17 @@
 
 module Main (main) where
 
-import Codec.Picture qualified as J
 import Control.Monad (forM_, unless)
+import Data.Massiv.Array qualified as M
+import Data.Massiv.Array.IO qualified as MIO
 import Data.Text (Text, pack)
 import Data.Text qualified as T
 import Data.Text.IO qualified as T
 import Data.Vector qualified as V
-import Data.Vector.Storable qualified as VS
-import Data.Vector.Unboxed qualified as VU
+import Data.Word
 import ExprParser (Cond (..), Expr (..), FunType (..), parseExpr)
+import Graphics.ColorModel qualified as CM
+import Graphics.Pixel.ColorSpace qualified as C
 import Options.Applicative
 import System.FilePath (replaceBaseName, takeBaseName, (-<.>))
 import System.Random.Stateful
@@ -95,6 +97,7 @@ computeFunction m@(px, py, pt) e = case e of
   _ -> error "Unreachable!"
  where
   cf = computeFunction m
+{-# INLINE computeFunction #-}
 
 data Output = PngOutput | TextOutput | BinaryOutput deriving (Eq, Show)
 
@@ -191,43 +194,27 @@ perform args idx = do
   let d c s = fromIntegral c / fromIntegral s * fs - fs / 2
   let funs = if singleFunction args then [fun_r, fun_r, fun_r, Num 1] else [fun_r, fun_g, fun_b, fun_a] :: V.Vector Expr
   let t = if idx == -1 then 0.0 else fromIntegral idx * 0.1
-  let values =
-        VU.generate
-          (width * height * 4)
-          ( \n ->
-              let (m, i) = n `divMod` 4
-                  (x, y) = m `divMod` width
-               in computeFunction (d x width, d y height, t) (funs V.! i)
-          )
-  let (maxValue_r, minValue_r) = computeBounds (VU.ifilter (\i _ -> i `mod` 4 == 0) values)
-  let valueSpan_r = (maxValue_r - minValue_r) / 255
-  let (maxValue_g, minValue_g) = computeBounds (VU.ifilter (\i _ -> i `mod` 4 == 1) values)
-  let valueSpan_g = (maxValue_g - minValue_g) / 255
-  let (maxValue_b, minValue_b) = computeBounds (VU.ifilter (\i _ -> i `mod` 4 == 2) values)
-  let valueSpan_b = (maxValue_b - minValue_b) / 255
-  let (maxValue_a, minValue_a) = computeBounds (VU.ifilter (\i _ -> i `mod` 4 == 3) values)
-  let valueSpan_a = (maxValue_a - minValue_a) / 255
+  let massive_values = M.makeArray @M.D M.Par (M.Sz (4 M.:> width M.:. height)) (\(k M.:> i M.:. j) -> computeFunction (d i width, d j height, t) (funs V.! k))
+  let (max_r, min_r) = computeBounds $ massive_values M.!> 0
+  let (max_g, min_g) = computeBounds $ massive_values M.!> 1
+  let (max_b, min_b) = computeBounds $ massive_values M.!> 2
+  let (max_a, min_a) = computeBounds $ massive_values M.!> 3
+  let span_r = (max_r - min_r) / 255
+  let span_g = (max_g - min_g) / 255
+  let span_b = (max_b - min_b) / 255
+  let span_a = (max_a - min_a) / 255
+  let arr_r = ((massive_values M.!> 0) M..- min_r) M../ span_r
+  let arr_g = ((massive_values M.!> 0) M..- min_g) M../ span_g
+  let arr_b = ((massive_values M.!> 0) M..- min_b) M../ span_b
+  let arr_a = ((massive_values M.!> 0) M..- min_a) M../ span_a
+  let arr = M.zipWith4 (\r g b a -> C.Pixel $ CM.ColorRGBA (truncate r :: Word8) (truncate g :: Word8) (truncate b :: Word8) (255 - truncate a :: Word8)) arr_r arr_g arr_b arr_a :: MIO.Image M.D (C.Alpha CM.RGB) Word8
   let filename =
         if idx == -1
           then output args
           else replaceBaseName (output args) (takeBaseName (output args) <> "_" <> printf "%03d" idx)
-  do
-    let values_storable =
-          VS.convert $
-            VU.imap
-              ( \i v -> truncate $ case i `mod` 4 of
-                  0 -> compute v minValue_r valueSpan_r
-                  1 -> compute v minValue_g valueSpan_g
-                  2 -> compute v minValue_b valueSpan_b
-                  3 -> 255 - compute v minValue_a valueSpan_a
-                  _ -> error "Unreachable"
-              )
-              values
-    J.writePng @J.PixelRGBA8 (filename -<.> "png") (J.Image width height values_storable)
+  MIO.writeImage (filename -<.> "png") arr
  where
-  compute :: Double -> Double -> Double -> Double
-  compute v minValue valueSpan = (v - minValue) / valueSpan
-  computeBounds values = (VU.maximum values, VU.minimum values)
+  computeBounds values = (M.maximum' values, M.minimum' values)
   normalizeWieghts ws =
     let
       s7 = w1 ws + w2 ws + w3 ws + w4 ws + w5 ws + w6 ws + w7 ws
