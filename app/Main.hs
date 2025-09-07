@@ -182,13 +182,13 @@ perform args idx = do
   let normWeights = normalizeWieghts (Weights (head ws) (ws !! 1) (ws !! 2) (ws !! 3) (ws !! 4) (ws !! 5) (ws !! 6))
   let gf = generateFunctionWrapper (maxDepth args) (maxConstant args) ["x", "y", "t"] normWeights
   fun_r <- genFun (funR args) (gf gen_r)
-  T.putStrLn $ prettyPrint fun_r
+  T.putStrLn (prettyPrint fun_r) >> T.putStrLn ""
   fun_g <- genFun (funG args) (gf gen_g)
-  unless (singleFunction args) $ T.putStrLn $ prettyPrint fun_g
+  unless (singleFunction args) $ T.putStrLn (prettyPrint fun_g) >> T.putStrLn ""
   fun_b <- genFun (funB args) (gf gen_b)
-  unless (singleFunction args) $ T.putStrLn $ prettyPrint fun_b
+  unless (singleFunction args) $ T.putStrLn (prettyPrint fun_b) >> T.putStrLn ""
   fun_a <- genFun (funA args) (gf gen_a)
-  unless (singleFunction args) $ T.putStrLn $ prettyPrint fun_a
+  unless (singleFunction args) $ T.putStrLn (prettyPrint fun_a) >> T.putStrLn ""
   let !width = imageWidth args
   let !height = imageHeight args
   let !fs = fieldSize args
