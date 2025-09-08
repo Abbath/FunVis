@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -33,23 +34,25 @@ prettyPrintFun Log = "log"
 prettyPrintFun Inv = "inv"
 
 prettyPrint :: Expr -> Text
-prettyPrint (Param p) = p
-prettyPrint (Num x) = showT x
-prettyPrint (Add e1 e2) = "(" <> prettyPrint e1 <> " + " <> prettyPrint e2 <> ")"
-prettyPrint (Mul (Num (-1)) e2) = "(-" <> prettyPrint e2 <> ")"
-prettyPrint (Mul e1 e2) = "(" <> prettyPrint e1 <> " * " <> prettyPrint e2 <> ")"
-prettyPrint (Pow n e1) = "(" <> prettyPrint e1 <> "^" <> showT n <> ")"
-prettyPrint (Fun f e1) = prettyPrintFun f <> "(" <> prettyPrint e1 <> ")"
-prettyPrint (If cond a b c d) = "if(" <> prettyPrint a <> (if cond == GreaterEqual then " >= " else " < ") <> prettyPrint b <> ", " <> prettyPrint c <> ", " <> prettyPrint d <> ")"
+prettyPrint = \case
+  Param p -> p
+  Num x -> showT x
+  Add e1 e2 -> "(" <> prettyPrint e1 <> " + " <> prettyPrint e2 <> ")"
+  Mul (Num (-1)) e2 -> "(-" <> prettyPrint e2 <> ")"
+  Mul e1 e2 -> "(" <> prettyPrint e1 <> " * " <> prettyPrint e2 <> ")"
+  Pow n e1 -> "(" <> prettyPrint e1 <> "^" <> showT n <> ")"
+  Fun f e1 -> prettyPrintFun f <> "(" <> prettyPrint e1 <> ")"
+  If cond a b c d -> "if(" <> prettyPrint a <> (if cond == GreaterEqual then " >= " else " < ") <> prettyPrint b <> ", " <> prettyPrint c <> ", " <> prettyPrint d <> ")"
 
 testFunction :: Expr -> Bool
-testFunction (Param _) = True
-testFunction (Num _) = False
-testFunction (Add e1 e2) = testFunction e1 || testFunction e2
-testFunction (Mul e1 e2) = testFunction e1 || testFunction e2
-testFunction (Pow _ e1) = testFunction e1
-testFunction (Fun _ e1) = testFunction e1
-testFunction (If _ e1 e2 e3 e4) = (testFunction e1 || testFunction e2) && (testFunction e3 || testFunction e4)
+testFunction = \case
+  Param _ -> True
+  Num _ -> False
+  Add e1 e2 -> testFunction e1 || testFunction e2
+  Mul e1 e2 -> testFunction e1 || testFunction e2
+  Pow _ e1 -> testFunction e1
+  Fun _ e1 -> testFunction e1
+  If _ e1 e2 e3 e4 -> (testFunction e1 || testFunction e2) && (testFunction e3 || testFunction e4)
 
 generateFunction :: (StatefulGen g m) => Int -> Double -> V.Vector Text -> Weights -> g -> m Expr
 generateFunction depth mc ps ws gen
@@ -76,7 +79,7 @@ generateFunction depth mc ps ws gen
     pure $ v V.! idx
 
 computeFunction :: (Double, Double, Double) -> Expr -> Double
-computeFunction m@(px, py, pt) e = case e of
+computeFunction m@(px, py, pt) = \case
   Num x -> x
   Param "x" -> px
   Param "y" -> py
