@@ -75,9 +75,7 @@ generateFunction depth mc ps ws gen
  where
   gf = generateFunction (depth - 1) mc ps ws gen
   randomNumber = uniformRM (-mc, mc) gen
-  randomChoice v = do
-    idx <- uniformRM (0 :: Int, length v - 1) gen
-    pure $ v V.! idx
+  randomChoice v = (v V.!) <$> uniformRM (0 :: Int, length v - 1) gen
 
 computeFunction :: (Double, Double, Double) -> Expr -> Double
 computeFunction m@(px, py, pt) = \case
@@ -94,11 +92,12 @@ computeFunction m@(px, py, pt) = \case
   Fun Log e1 -> log $ cf e1
   Fun Inv e1 -> let d = cf e1 in if d == 0 then d else 1 / cf e1
   If cond a b c d ->
-    if case cond of
-      GreaterEqual -> cf a >= cf b
-      Less -> cf a < cf b
-      then cf c
-      else cf d
+    cf $
+      if case cond of
+        GreaterEqual -> cf a >= cf b
+        Less -> cf a < cf b
+        then c
+        else d
   _ -> error "Unreachable!"
  where
   cf = computeFunction m
@@ -120,6 +119,7 @@ data Options = Options
   , funA :: Text
   , attempts :: Int
   , singleFunction :: Bool
+  , useAlpha :: Bool
   }
 
 options :: Parser Options
@@ -138,6 +138,7 @@ options =
     <*> strOption (long "alpha" <> short 'a' <> help "Alpha channel function" <> value "" <> metavar "ALPHA_FUNCTION")
     <*> option auto (long "attempts" <> short 'n' <> help "Number of attempts" <> showDefault <> value 0 <> metavar "ATTEMPTS")
     <*> switch (long "single-function" <> short 'l' <> help "Single function")
+    <*> switch (long "use-alpha" <> short 'p' <> help "Use alpha")
 
 data Weights = Weights
   { w1 :: Double
@@ -192,7 +193,7 @@ perform args idx = do
   unless (singleFunction args) $ pf fun_g
   fun_b <- genFun (funB args) (gf gen_b)
   unless (singleFunction args) $ pf fun_b
-  fun_a <- genFun (funA args) (gf gen_a)
+  fun_a <- if useAlpha args then genFun (funA args) (gf gen_a) else pure $ Num 1
   unless (singleFunction args) $ pf fun_a
   let !width = imageWidth args
   let !height = imageHeight args
