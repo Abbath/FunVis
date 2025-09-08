@@ -159,7 +159,7 @@ main = do
   args <- execParser opts
   case attempts args of
     0 -> perform args (-1)
-    n -> forM_ ([1 .. n] :: [Int]) $ perform args
+    n -> forM_ ([0 .. n - 1] :: [Int]) $ perform args
  where
   opts = info (options <**> helper) (fullDesc <> progDesc "Function Visualisation" <> header "Visualise a random function")
 
@@ -185,14 +185,15 @@ perform args idx = do
   let ws = read @[Double] . T.unpack . ("[" <>) . (<> "]") . T.intercalate ", " . T.words $ weights args
   let normWeights = normalizeWieghts (Weights (head ws) (ws !! 1) (ws !! 2) (ws !! 3) (ws !! 4) (ws !! 5) (ws !! 6))
   let gf = generateFunctionWrapper (maxDepth args) (maxConstant args) ["x", "y", "t"] normWeights
+  let pf f = T.putStrLn (prettyPrint f) >> T.putStrLn ""
   fun_r <- genFun (funR args) (gf gen_r)
-  T.putStrLn (prettyPrint fun_r) >> T.putStrLn ""
+  pf fun_r
   fun_g <- genFun (funG args) (gf gen_g)
-  unless (singleFunction args) $ T.putStrLn (prettyPrint fun_g) >> T.putStrLn ""
+  unless (singleFunction args) $ pf fun_g
   fun_b <- genFun (funB args) (gf gen_b)
-  unless (singleFunction args) $ T.putStrLn (prettyPrint fun_b) >> T.putStrLn ""
+  unless (singleFunction args) $ pf fun_b
   fun_a <- genFun (funA args) (gf gen_a)
-  unless (singleFunction args) $ T.putStrLn (prettyPrint fun_a) >> T.putStrLn ""
+  unless (singleFunction args) $ pf fun_a
   let !width = imageWidth args
   let !height = imageHeight args
   let !fs = fieldSize args
@@ -212,11 +213,11 @@ perform args idx = do
   let arr_g = ((massive_values !> 1) .- min_g) ./ span_g
   let arr_b = ((massive_values !> 2) .- min_b) ./ span_b
   let arr_a = ((massive_values !> 3) .- min_a) ./ span_a
-  let arr = M.zipWith4 (\r g b a -> C.Pixel $ CM.ColorRGBA (truncate r :: Word8) (truncate g :: Word8) (truncate b :: Word8) (255 - truncate a :: Word8)) arr_r arr_g arr_b arr_a :: MIO.Image M.D (C.Alpha CM.RGB) Word8
+  let arr = M.zipWith4 (\r g b a -> C.Pixel $ CM.ColorRGBA (truncate r) (truncate g) (truncate b) (255 - truncate a)) arr_r arr_g arr_b arr_a :: MIO.Image M.D (C.Alpha CM.RGB) Word8
   let filename =
         if idx == -1
           then output args
-          else replaceBaseName (output args) (takeBaseName (output args) <> "_" <> printf "%03d" idx)
+          else let fname = output args in replaceBaseName fname (takeBaseName fname <> "_" <> printf "%03d" idx)
   MIO.writeImage (filename -<.> "png") arr
  where
   computeBounds values = (M.maximum' values, M.minimum' values)
