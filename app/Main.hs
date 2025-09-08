@@ -120,6 +120,7 @@ data Options = Options
   , attempts :: Int
   , singleFunction :: Bool
   , useAlpha :: Bool
+  , step :: Double
   }
 
 options :: Parser Options
@@ -139,6 +140,7 @@ options =
     <*> option auto (long "attempts" <> short 'n' <> help "Number of attempts" <> showDefault <> value 0 <> metavar "ATTEMPTS")
     <*> switch (long "single-function" <> short 'l' <> help "Single function")
     <*> switch (long "use-alpha" <> short 'p' <> help "Use alpha")
+    <*> option auto (long "step" <> short 'e' <> help "Time step" <> showDefault <> value 0 <> metavar "STEP")
 
 data Weights = Weights
   { w1 :: Double
@@ -158,9 +160,16 @@ parseFunction f = case parseExpr (T.unpack f) of
 main :: IO ()
 main = do
   args <- execParser opts
+  funs <- generateFunctions args
   case attempts args of
-    0 -> perform args (-1)
-    n -> forM_ ([0 .. n - 1] :: [Int]) $ perform args
+    0 -> perform funs args (-1)
+    n ->
+      forM_ ([0 .. n - 1] :: [Int]) $
+        if step args /= 0
+          then perform funs args
+          else \m -> do
+            new_funs <- generateFunctions args
+            perform new_funs args m
  where
   opts = info (options <**> helper) (fullDesc <> progDesc "Function Visualisation" <> header "Visualise a random function")
 
@@ -177,14 +186,28 @@ genFun f g =
     then g
     else pure . parseFunction $ f
 
-perform :: Options -> Int -> IO ()
-perform args idx = do
+normalizeWeights :: Weights -> Weights
+normalizeWeights ws =
+  let
+    s7 = w1 ws + w2 ws + w3 ws + w4 ws + w5 ws + w6 ws + w7 ws
+    s6 = s7 - w7 ws
+    s5 = s6 - w6 ws
+    s4 = s5 - w5 ws
+    s3 = s4 - w4 ws
+    s2 = s3 - w3 ws
+    s1 = s2 - w2 ws
+    d = s7
+   in
+    Weights (s1 / d) (s2 / d) (s3 / d) (s4 / d) (s5 / d) (s6 / d) (s7 / d)
+
+generateFunctions :: Options -> IO (V.Vector Expr)
+generateFunctions args = do
   gen_r <- newStdGen >>= newIOGenM
   gen_g <- newStdGen >>= newIOGenM
   gen_b <- newStdGen >>= newIOGenM
   gen_a <- newStdGen >>= newIOGenM
   let ws = read @[Double] . T.unpack . ("[" <>) . (<> "]") . T.intercalate ", " . T.words $ weights args
-  let normWeights = normalizeWieghts (Weights (head ws) (ws !! 1) (ws !! 2) (ws !! 3) (ws !! 4) (ws !! 5) (ws !! 6))
+  let normWeights = normalizeWeights (Weights (head ws) (ws !! 1) (ws !! 2) (ws !! 3) (ws !! 4) (ws !! 5) (ws !! 6))
   let gf = generateFunctionWrapper (maxDepth args) (maxConstant args) ["x", "y", "t"] normWeights
   let pf f = T.putStrLn (prettyPrint f) >> T.putStrLn ""
   fun_r <- genFun (funR args) (gf gen_r)
@@ -195,13 +218,17 @@ perform args idx = do
   unless (singleFunction args) $ pf fun_b
   fun_a <- if useAlpha args then genFun (funA args) (gf gen_a) else pure $ Num 1
   unless (singleFunction args) $ pf fun_a
+  let funs = if singleFunction args then [fun_r, fun_r, fun_r, Num 1] else [fun_r, fun_g, fun_b, fun_a] :: V.Vector Expr
+  pure funs
+
+perform :: V.Vector Expr -> Options -> Int -> IO ()
+perform funs args idx = do
   let !width = imageWidth args
   let !height = imageHeight args
   let !fs = fieldSize args
   let d c s = fromIntegral c / fromIntegral s * fs - fs / 2
-  let funs = if singleFunction args then [fun_r, fun_r, fun_r, Num 1] else [fun_r, fun_g, fun_b, fun_a] :: V.Vector Expr
-  let t = if idx == -1 then 0.0 else fromIntegral idx * 0.1
-  let massive_values = M.makeArray @M.D M.Par (M.Sz (4 :> width :. height)) (\(k :> i :. j) -> computeFunction (d i width, d j height, t) (funs V.! k))
+  let t = if idx == -1 then 0.0 else fromIntegral idx * step args
+  let massive_values = M.makeArray @M.D M.Par (M.Sz (4 :> height :. width)) (\(k :> i :. j) -> computeFunction (d i height, d j width, t) (funs V.! k))
   let (max_r, min_r) = computeBounds $ massive_values !> 0
   let (max_g, min_g) = computeBounds $ massive_values !> 1
   let (max_b, min_b) = computeBounds $ massive_values !> 2
@@ -222,15 +249,3 @@ perform args idx = do
   MIO.writeImage (filename -<.> "png") arr
  where
   computeBounds values = (M.maximum' values, M.minimum' values)
-  normalizeWieghts ws =
-    let
-      s7 = w1 ws + w2 ws + w3 ws + w4 ws + w5 ws + w6 ws + w7 ws
-      s6 = s7 - w7 ws
-      s5 = s6 - w6 ws
-      s4 = s5 - w5 ws
-      s3 = s4 - w4 ws
-      s2 = s3 - w3 ws
-      s1 = s2 - w2 ws
-      d = s7
-     in
-      Weights (s1 / d) (s2 / d) (s3 / d) (s4 / d) (s5 / d) (s6 / d) (s7 / d)
