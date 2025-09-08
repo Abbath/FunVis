@@ -27,11 +27,12 @@ showT :: (Show a) => a -> Text
 showT = pack . show
 
 prettyPrintFun :: FunType -> Text
-prettyPrintFun Sin = "sin"
-prettyPrintFun Abs = "abs"
-prettyPrintFun Sqrt = "sqrt"
-prettyPrintFun Log = "log"
-prettyPrintFun Inv = "inv"
+prettyPrintFun = \case
+  Sin -> "sin"
+  Abs -> "abs"
+  Sqrt -> "sqrt"
+  Log -> "log"
+  Inv -> "inv"
 
 prettyPrint :: Expr -> Text
 prettyPrint = \case
