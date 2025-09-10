@@ -56,7 +56,7 @@ testFunction = \case
   If _ e1 e2 e3 e4 -> (testFunction e1 || testFunction e2) && (testFunction e3 || testFunction e4)
 
 generateFunction :: (StatefulGen g m) => Int -> Double -> V.Vector Text -> Weights -> g -> m Expr
-generateFunction depth mc ps ws gen
+generateFunction depth mc ps ws@(Weights w) gen
   | depth == 0 = do
       choice <- uniformRM (0 :: Int, 1) gen
       if choice == 0
@@ -65,12 +65,12 @@ generateFunction depth mc ps ws gen
   | otherwise = do
       choice <- uniformRM (0.0 :: Double, 1.0) gen
       if
-        | choice < w1 ws -> Num <$> randomNumber
-        | choice < w2 ws -> Param <$> randomChoice ps
-        | choice < w3 ws -> Add <$> gf <*> gf
-        | choice < w4 ws -> Mul <$> gf <*> gf
-        | choice < w5 ws -> Pow <$> randomChoice [2.0, 3.0] <*> gf
-        | choice < w6 ws -> If <$> randomChoice [GreaterEqual, Less] <*> gf <*> gf <*> gf <*> gf
+        | choice < w V.! 0 -> Num <$> randomNumber
+        | choice < w V.! 1 -> Param <$> randomChoice ps
+        | choice < w V.! 2 -> Add <$> gf <*> gf
+        | choice < w V.! 3 -> Mul <$> gf <*> gf
+        | choice < w V.! 4 -> Pow <$> randomChoice [2.0, 3.0] <*> gf
+        | choice < w V.! 5 -> If <$> randomChoice [GreaterEqual, Less] <*> gf <*> gf <*> gf <*> gf
         | otherwise -> Fun <$> randomChoice [Sin, Abs, Sqrt, Log, Inv] <*> gf
  where
   gf = generateFunction (depth - 1) mc ps ws gen
@@ -142,15 +142,7 @@ options =
     <*> switch (long "use-alpha" <> short 'p' <> help "Use alpha")
     <*> option auto (long "step" <> short 'e' <> help "Time step" <> showDefault <> value 0 <> metavar "STEP")
 
-data Weights = Weights
-  { w1 :: Double
-  , w2 :: Double
-  , w3 :: Double
-  , w4 :: Double
-  , w5 :: Double
-  , w6 :: Double
-  , w7 :: Double
-  }
+newtype Weights = Weights (V.Vector Double)
 
 parseFunction :: Text -> Expr
 parseFunction f = case parseExpr (T.unpack f) of
@@ -181,24 +173,14 @@ generateFunctionWrapper md mc ps ws g = do
     else generateFunctionWrapper md mc ps ws g
 
 genFun :: (Applicative f) => Text -> f Expr -> f Expr
-genFun f g =
-  if f == ""
-    then g
-    else pure . parseFunction $ f
+genFun "" g = g
+genFun f _ = pure . parseFunction $ f
 
 normalizeWeights :: Weights -> Weights
-normalizeWeights ws =
-  let
-    s7 = w1 ws + w2 ws + w3 ws + w4 ws + w5 ws + w6 ws + w7 ws
-    s6 = s7 - w7 ws
-    s5 = s6 - w6 ws
-    s4 = s5 - w5 ws
-    s3 = s4 - w4 ws
-    s2 = s3 - w3 ws
-    s1 = s2 - w2 ws
-    d = s7
-   in
-    Weights (s1 / d) (s2 / d) (s3 / d) (s4 / d) (s5 / d) (s6 / d) (s7 / d)
+normalizeWeights (Weights ws) =
+  let sums = V.scanl1 (+) ws
+      d = V.last sums
+   in Weights $ (/ d) <$> sums
 
 generateFunctions :: Options -> IO (V.Vector Expr)
 generateFunctions args = do
@@ -206,8 +188,8 @@ generateFunctions args = do
   gen_g <- newStdGen >>= newIOGenM
   gen_b <- newStdGen >>= newIOGenM
   gen_a <- newStdGen >>= newIOGenM
-  let ws = read @[Double] . T.unpack . ("[" <>) . (<> "]") . T.intercalate ", " . T.words $ weights args
-  let normWeights = normalizeWeights (Weights (head ws) (ws !! 1) (ws !! 2) (ws !! 3) (ws !! 4) (ws !! 5) (ws !! 6))
+  let ws = read @(V.Vector Double) . T.unpack . ("[" <>) . (<> "]") . T.intercalate ", " . T.words $ weights args
+  let normWeights = normalizeWeights $ Weights ws
   let gf = generateFunctionWrapper (maxDepth args) (maxConstant args) ["x", "y", "t"] normWeights
   let pf f = T.putStrLn (prettyPrint f) >> T.putStrLn ""
   fun_r <- genFun (funR args) (gf gen_r)
