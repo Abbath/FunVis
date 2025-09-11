@@ -38,22 +38,26 @@ prettyPrint :: Expr -> Text
 prettyPrint = \case
   Param p -> p
   Num x -> showT x
-  Add e1 e2 -> "(" <> prettyPrint e1 <> " + " <> prettyPrint e2 <> ")"
-  Mul (Num (-1)) e2 -> "(-" <> prettyPrint e2 <> ")"
-  Mul e1 e2 -> "(" <> prettyPrint e1 <> " * " <> prettyPrint e2 <> ")"
-  Pow n e1 -> "(" <> prettyPrint e1 <> "^" <> showT n <> ")"
-  Fun f e1 -> prettyPrintFun f <> "(" <> prettyPrint e1 <> ")"
-  If cond a b c d -> "if(" <> prettyPrint a <> (if cond == GreaterEqual then " >= " else " < ") <> prettyPrint b <> ", " <> prettyPrint c <> ", " <> prettyPrint d <> ")"
+  Add e1 e2 -> "(" <> pp e1 <> " + " <> pp e2 <> ")"
+  Mul (Num (-1)) e2 -> "(-" <> pp e2 <> ")"
+  Mul e1 e2 -> "(" <> pp e1 <> " * " <> pp e2 <> ")"
+  Pow n e1 -> "(" <> pp e1 <> "^" <> showT n <> ")"
+  Fun f e1 -> prettyPrintFun f <> "(" <> pp e1 <> ")"
+  If cond a b c d -> "if(" <> pp a <> (if cond == GreaterEqual then " >= " else " < ") <> pp b <> ", " <> pp c <> ", " <> pp d <> ")"
+ where
+  pp = prettyPrint
 
 testFunction :: Expr -> Bool
 testFunction = \case
   Param _ -> True
   Num _ -> False
-  Add e1 e2 -> testFunction e1 || testFunction e2
-  Mul e1 e2 -> testFunction e1 || testFunction e2
-  Pow _ e1 -> testFunction e1
-  Fun _ e1 -> testFunction e1
-  If _ e1 e2 e3 e4 -> (testFunction e1 || testFunction e2) && (testFunction e3 || testFunction e4)
+  Add e1 e2 -> tf e1 || tf e2
+  Mul e1 e2 -> tf e1 || tf e2
+  Pow _ e1 -> tf e1
+  Fun _ e1 -> tf e1
+  If _ e1 e2 e3 e4 -> (tf e1 || tf e2) && (tf e3 || tf e4)
+ where
+  tf = testFunction
 
 generateFunction :: (StatefulGen g m) => Int -> Double -> V.Vector Text -> Weights -> g -> m Expr
 generateFunction depth mc ps ws@(Weights w) gen
