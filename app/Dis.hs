@@ -8,7 +8,7 @@ import Control.Monad.IO.Class (MonadIO (liftIO))
 import Data.ByteString qualified as BS
 import Data.Char (isSpace)
 import Data.Maybe (fromMaybe)
-import Data.Text as T
+import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Discord (
   DiscordHandler,
@@ -46,9 +46,7 @@ eventHandler :: Event -> DiscordHandler ()
 eventHandler event =
   case event of
     MessageCreate m -> when (isCalc m && not (fromBot m)) $ do
-      let message_text = messageContent m
-      let parseResult = execParserPure defaultPrefs (info (options <**> helper) fullDesc) . parseCommands $ T.drop 6 message_text
-      let maybe_opts = getParseResult parseResult
+      let maybe_opts = getParseResult . execParserPure defaultPrefs (info (options <**> helper) fullDesc) . parseCommands . T.drop 6 . messageContent $ m
       case maybe_opts of
         Just opts -> do
           liftIO . TIO.putStrLn $ "[" <> (T.pack . show $ messageTimestamp m) <> "] " <> userName (messageAuthor m) <> ": " <> T.dropWhile (not . isSpace) (messageContent m)
@@ -85,11 +83,9 @@ isCalc = (\m -> "!image" `T.isPrefixOf` m) . T.toLower . messageContent
 parseCommands :: T.Text -> [String]
 parseCommands = go
  where
-  go m =
-    let b = T.uncons m
-     in case b of
-          Just (h, t) -> case h of
-            ' ' -> let (x, xs) = T.breakOn " " t in T.unpack x : go xs
-            '"' -> let (x, xs) = T.breakOn "\"" t in T.unpack x : go xs
-            _ -> []
-          Nothing -> []
+  go m = case T.uncons m of
+    Just (h, t) ->
+      if h `elem` [' ', '"']
+        then let (x, xs) = T.breakOn (T.singleton h) t in T.unpack x : go xs
+        else []
+    Nothing -> []
