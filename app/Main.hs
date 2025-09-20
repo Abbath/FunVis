@@ -1,6 +1,3 @@
-{-# LANGUAGE OverloadedLists #-}
-{-# LANGUAGE OverloadedStrings #-}
-
 module Main (main) where
 
 import Control.Monad (forM_)
@@ -19,7 +16,7 @@ main = do
       case attempts args of
         0 -> perform funs args (-1)
         n ->
-          forM_ ([0 .. n - 1] :: [Int]) $
+          forM_ [0 .. n - 1] $
             if step args /= 0
               then perform funs args
               else \m -> do
