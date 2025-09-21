@@ -107,21 +107,18 @@ normalizeWeights (Weights ws) =
 
 generateFunctions :: Options -> IO (V.Vector Expr)
 generateFunctions args = do
-  gen_r <- newStdGen >>= newIOGenM
-  gen_g <- newStdGen >>= newIOGenM
-  gen_b <- newStdGen >>= newIOGenM
-  gen_a <- newStdGen >>= newIOGenM
+  gen <- newStdGen >>= newIOGenM
   let ws = read @(V.Vector Double) . T.unpack . ("[" <>) . (<> "]") . T.intercalate ", " . T.words $ weights args
   let normWeights = normalizeWeights $ Weights ws
   let gf = generateFunctionWrapper (maxDepth args) (maxConstant args) ["x", "y", "t"] normWeights
   let pf f = T.putStrLn (prettyPrint f) >> T.putStrLn ""
-  fun_r <- genFun (funR args) (gf gen_r)
+  fun_r <- genFun (funR args) (gf gen)
   pf fun_r
-  fun_g <- genFun (funG args) (gf gen_g)
+  fun_g <- genFun (funG args) (gf gen)
   unless (singleFunction args) $ pf fun_g
-  fun_b <- genFun (funB args) (gf gen_b)
+  fun_b <- genFun (funB args) (gf gen)
   unless (singleFunction args) $ pf fun_b
-  fun_a <- if useAlpha args then genFun (funA args) (gf gen_a) else pure $ Num 1
+  fun_a <- if useAlpha args then genFun (funA args) (gf gen) else pure $ Num 1
   unless (singleFunction args) $ pf fun_a
   let funs = if singleFunction args then [fun_r, fun_r, fun_r, Num 1] else [fun_r, fun_g, fun_b, fun_a] :: V.Vector Expr
   pure funs
