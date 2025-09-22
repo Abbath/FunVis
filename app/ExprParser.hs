@@ -1,12 +1,9 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module ExprParser (parseExpr, Expr (..), Cond (..), FunType (..)) where
+module ExprParser (parseExpr, Expr (..), Cond (..), FunType (..), Parameter (..)) where
 
 import Control.Monad.Combinators.Expr
-import Data.Text (
-  Text,
-  pack,
- )
 import Data.Void
 import Text.Megaparsec
 import Text.Megaparsec.Char
@@ -16,9 +13,11 @@ data Cond = GreaterEqual | Less deriving (Show, Eq)
 
 data FunType = Sin | Abs | Sqrt | Log | Inv deriving (Show, Eq)
 
+data Parameter = X | Y | T deriving (Show)
+
 -- AST
 data Expr
-  = Param Text
+  = Param Parameter
   | Num Double
   | Add Expr Expr
   | Mul Expr Expr
@@ -49,7 +48,15 @@ pNum = Num <$> (try (lexeme L.float) <|> lexeme L.decimal)
 
 -- Variable parser
 pVar :: Parser Expr
-pVar = Param . pack <$> lexeme (symbol "x" <|> symbol "y" <|> symbol "t")
+pVar =
+  Param
+    . ( \case
+          "x" -> X
+          "y" -> Y
+          "t" -> T
+          _ -> error "Unreachable"
+      )
+    <$> lexeme (symbol "x" <|> symbol "y" <|> symbol "t")
 
 -- Function parser (like sin(expr), log(expr), abs(expr))
 pFun :: Parser Expr

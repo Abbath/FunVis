@@ -6,6 +6,7 @@
 module Performer (generateFunctions, perform) where
 
 import Control.Monad (unless)
+import Data.Char (toLower)
 import Data.Massiv.Array (Ix2 ((:.)), IxN ((:>)), (!>), (.-), (./))
 import Data.Massiv.Array qualified as M
 import Data.Massiv.Array.IO qualified as MIO
@@ -14,7 +15,7 @@ import Data.Text qualified as T
 import Data.Text.IO qualified as T
 import Data.Vector qualified as V
 import Data.Word
-import ExprParser (Cond (..), Expr (..), FunType (..), parseExpr)
+import ExprParser (Cond (..), Expr (..), FunType (..), Parameter (..), parseExpr)
 import Graphics.ColorModel qualified as CM
 import Graphics.Pixel.ColorSpace qualified as C
 import System.FilePath (replaceBaseName, takeBaseName, (-<.>))
@@ -25,7 +26,7 @@ import Types
 
 newtype Weights = Weights (V.Vector Double)
 
-generateFunction :: (StatefulGen g m) => Int -> Double -> V.Vector Text -> Weights -> g -> m Expr
+generateFunction :: (StatefulGen g m) => Int -> Double -> V.Vector Parameter -> Weights -> g -> m Expr
 generateFunction depth mc ps ws@(Weights w) gen
   | depth == 0 = do
       choice <- uniformRM (0 :: Int, 1) gen
@@ -60,7 +61,7 @@ prettyPrintFun = \case
 
 prettyPrint :: Expr -> Text
 prettyPrint = \case
-  Param p -> p
+  Param p -> T.pack $ toLower <$> show p
   Num x -> showT x
   Add e1 e2 -> "(" <> pp e1 <> " + " <> pp e2 <> ")"
   Mul (Num (-1)) e2 -> "(-" <> pp e2 <> ")"
@@ -88,7 +89,7 @@ parseFunction f = case parseExpr (T.unpack f) of
   Left err -> error (errorBundlePretty err)
   Right ast -> ast
 
-generateFunctionWrapper :: (StatefulGen g m) => Int -> Double -> V.Vector Text -> Weights -> g -> m Expr
+generateFunctionWrapper :: (StatefulGen g m) => Int -> Double -> V.Vector Parameter -> Weights -> g -> m Expr
 generateFunctionWrapper md mc ps ws g = do
   fun <- generateFunction md mc ps ws g
   if testFunction fun
@@ -110,7 +111,7 @@ generateFunctions args = do
   gen <- newStdGen >>= newIOGenM
   let ws = read @(V.Vector Double) . T.unpack . ("[" <>) . (<> "]") . T.intercalate ", " . T.words $ weights args
   let normWeights = normalizeWeights $ Weights ws
-  let gf = generateFunctionWrapper (maxDepth args) (maxConstant args) ["x", "y", "t"] normWeights
+  let gf = generateFunctionWrapper (maxDepth args) (maxConstant args) [X, Y, T] normWeights
   let pf f = T.putStrLn (prettyPrint f) >> T.putStrLn ""
   fun_r <- genFun (funR args) (gf gen)
   pf fun_r
@@ -126,9 +127,9 @@ generateFunctions args = do
 computeFunction :: (Double, Double, Double) -> Expr -> Double
 computeFunction m@(px, py, pt) = \case
   Num x -> x
-  Param "x" -> px
-  Param "y" -> py
-  Param "t" -> pt
+  Param X -> px
+  Param Y -> py
+  Param T -> pt
   Add e1 e2 -> cf e1 + cf e2
   Mul e1 e2 -> cf e1 * cf e2
   Pow n e1 -> cf e1 ** n
@@ -144,7 +145,6 @@ computeFunction m@(px, py, pt) = \case
         Less -> cf a < cf b
         then c
         else d
-  _ -> error "Unreachable!"
  where
   cf = computeFunction m
 {-# INLINE computeFunction #-}
